@@ -19,6 +19,42 @@ python app.py --headless
 
 First run downloads the default model (`large-v3-turbo`, ~1.5GB) to the HuggingFace cache and holds it in VRAM (~1.5GB) for instant transcription.
 
+## Install on a new machine (teammates)
+
+Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recommended — the Microsoft Store or [python.org](https://www.python.org/downloads/) build; both include the `tkinter` used by the pill/tray). Nothing in the repo hardcodes another user's paths — autostart resolves the Python path per-machine on first run.
+
+1. **Get the code.** Ask the repo owner to add you as a collaborator (it's private), then:
+   ```powershell
+   git clone https://github.com/umeshsugara-ai/whisperflow
+   cd whisperflow
+   ```
+2. **Install dependencies:**
+   ```powershell
+   python -m pip install -r requirements.txt
+   ```
+3. **Pick a model for your hardware:**
+   ```powershell
+   python app.py --recommend
+   ```
+   Paste the printed `[model]` block into `config.toml`. No NVIDIA GPU? It suggests `small` on CPU, or the **Gemini cloud** engine — set the `GEMINI_API_KEY` env var.
+4. **Tune `config.toml`:** set `[hotkey].combo` (e.g. `ctrl+windows` or `alt+windows`) and `[model].language` (`""` auto, `en`, `hi`, `hinglish`).
+5. **First run:**
+   ```powershell
+   python app.py
+   ```
+   Downloads the model (~1.5GB) and **auto-registers autostart**. A slim pill appears at the bottom of the screen; hover it to see the hotkey.
+6. **Reboot** → it launches automatically (windowless). Toggle anytime via tray → **"Start on Windows login"**, or `python app.py --install-autostart` / `--uninstall-autostart`.
+
+**If dictation types nothing:** Windows → Sound → **Input** → confirm the mic isn't muted/at 0 and the Test bar moves when you speak (and any Nahimic/Realtek mic effect isn't muting it).
+
+### Set up with Claude Code
+
+Prefer to let an AI agent do the setup? Install [Claude Code](https://claude.com/claude-code), open a terminal in an empty folder, and paste a prompt like:
+
+> Clone `https://github.com/umeshsugara-ai/whisperflow` (I have collaborator access) and set up WhisperFlow on my Windows machine: install `requirements.txt` with my Python 3.13, run `python app.py --recommend` and update `config.toml` `[model]` to match my hardware, set `[hotkey].combo` to `"ctrl+windows"`, then launch `python app.py` and confirm the log at `logs/whisperflow.log` reaches the "ready" line. If I have no NVIDIA GPU, configure the Gemini cloud engine instead and tell me to set `GEMINI_API_KEY`.
+
+Claude Code will run the commands, edit `config.toml`, launch the app, and verify it reaches the **ready** state — then autostart takes over on the next reboot. Point it at the sections of this README if it needs model/config details.
+
 ## Usage
 
 | Action | How |
@@ -73,7 +109,7 @@ Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local f
 ## Development
 
 ```powershell
-python -m pytest tests/ -q          # 38 unit tests
+python -m pytest tests/ -q          # 69 unit tests
 python scripts/test_inject.py --self-test
 python scripts/test_overlay.py --cycle
 python scripts/test_stt.py --smoke
