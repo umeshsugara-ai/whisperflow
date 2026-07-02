@@ -52,7 +52,8 @@ class Overlay:
         self.win.attributes("-transparentcolor", TRANSPARENT)
         self.win.configure(bg=TRANSPARENT)
 
-        self.width, self.height = 168, 20
+        # full-size pill (hover / recording / processing states)
+        self.width, self.height = 168, 40
         self.canvas = tk.Canvas(
             self.win, width=self.width, height=self.height, bg=TRANSPARENT, highlightthickness=0
         )
@@ -60,18 +61,18 @@ class Overlay:
 
         cy = self.height // 2
         self._pill = self._rounded_rect(
-            2, 3, self.width - 2, self.height - 3, radius=7, fill=BG, outline=BORDER, width=BORDER_W
+            2, 4, self.width - 2, self.height - 4, radius=17, fill=BG, outline=BORDER, width=BORDER_W
         )
 
         # cancel button (left)
-        self._btn_x = self.canvas.create_oval(5, cy - 7, 19, cy + 7, fill=BTN_DARK, outline="")
+        self._btn_x = self.canvas.create_oval(8, cy - 12, 32, cy + 12, fill=BTN_DARK, outline="")
         self._btn_x_label = self.canvas.create_text(
-            12, cy, text="✕", fill=FG, font=("Segoe UI", 8, "bold")
+            20, cy, text="✕", fill=FG, font=("Segoe UI", 10, "bold")
         )
         # confirm button (right)
-        self._btn_ok = self.canvas.create_oval(self.width - 19, cy - 7, self.width - 5, cy + 7, fill=FG, outline="")
+        self._btn_ok = self.canvas.create_oval(self.width - 32, cy - 12, self.width - 8, cy + 12, fill=FG, outline="")
         self._btn_ok_label = self.canvas.create_text(
-            self.width - 12, cy, text="✓", fill=BG, font=("Segoe UI", 8, "bold")
+            self.width - 20, cy, text="✓", fill=BG, font=("Segoe UI", 10, "bold")
         )
 
         # waveform bars (center)
@@ -91,13 +92,14 @@ class Overlay:
             self.width // 2, cy, anchor="center", fill=FG, font=("Segoe UI", 9), text="", state="hidden"
         )
 
-        # idle resting pill: a small compact rounded pill shown when the app is
-        # alive but not recording — the "I'm here" indicator (Wispr-style). The
-        # full-width _pill only appears on hover / while active, so at rest the
-        # overlay reads as a neat little pill, not a big empty bar.
-        rest_pw = 46
+        # idle resting pill: a small compact pill CENTERED in the canvas — slim
+        # in width and height — shown at rest. On hover the full-size _pill
+        # takes over, so the resting look is a neat little pill while the hover
+        # look keeps the original taller shape.
+        rest_pw, rest_ph = 46, 14
         self._rest_pill = self._rounded_rect(
-            self.width // 2 - rest_pw // 2, 3, self.width // 2 + rest_pw // 2, self.height - 3,
+            self.width // 2 - rest_pw // 2, cy - rest_ph // 2,
+            self.width // 2 + rest_pw // 2, cy + rest_ph // 2,
             radius=7, fill=BG, outline=BORDER, width=BORDER_W, state="hidden",
         )
 
@@ -239,7 +241,7 @@ class Overlay:
         self._levels.append(level)
         x0, step, cy = self._bar_geo
         for i, (bar, lv) in enumerate(zip(self._bars, self._levels)):
-            h = 1 + lv * 5  # bar half-height 1..6px (fits the slim 20px pill)
+            h = 1 + lv * 11  # bar half-height 1..12px
             self.canvas.coords(bar, x0 + i * step + 1, cy - h, x0 + (i + 1) * step - 2, cy + h)
         self._pulse_job = self.win.after(70, self._pulse)
 
