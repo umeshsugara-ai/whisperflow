@@ -31,6 +31,8 @@ WAVE = "#f2ede1"
 ACCENT_PROC = "#f5a623"
 ACCENT_OK = "#5cb85c"
 ACCENT_ERR = "#e5484d"
+BORDER = "#ffffff"  # white outline so the pill stays visible on dark AND light backgrounds
+BORDER_W = 2
 TRANSPARENT = "#010203"  # unlikely-to-clash colorkey for rounded corners
 
 POS_FILE = Path(__file__).resolve().parent.parent.parent / "overlay_pos.txt"
@@ -50,24 +52,26 @@ class Overlay:
         self.win.attributes("-transparentcolor", TRANSPARENT)
         self.win.configure(bg=TRANSPARENT)
 
-        self.width, self.height = 168, 40
+        self.width, self.height = 168, 20
         self.canvas = tk.Canvas(
             self.win, width=self.width, height=self.height, bg=TRANSPARENT, highlightthickness=0
         )
         self.canvas.pack()
 
         cy = self.height // 2
-        self._pill = self._rounded_rect(1, 3, self.width - 1, self.height - 3, radius=17, fill=BG)
+        self._pill = self._rounded_rect(
+            2, 3, self.width - 2, self.height - 3, radius=7, fill=BG, outline=BORDER, width=BORDER_W
+        )
 
         # cancel button (left)
-        self._btn_x = self.canvas.create_oval(8, cy - 12, 32, cy + 12, fill=BTN_DARK, outline="")
+        self._btn_x = self.canvas.create_oval(5, cy - 7, 19, cy + 7, fill=BTN_DARK, outline="")
         self._btn_x_label = self.canvas.create_text(
-            20, cy, text="✕", fill=FG, font=("Segoe UI", 10, "bold")
+            12, cy, text="✕", fill=FG, font=("Segoe UI", 8, "bold")
         )
         # confirm button (right)
-        self._btn_ok = self.canvas.create_oval(self.width - 32, cy - 12, self.width - 8, cy + 12, fill=FG, outline="")
+        self._btn_ok = self.canvas.create_oval(self.width - 19, cy - 7, self.width - 5, cy + 7, fill=FG, outline="")
         self._btn_ok_label = self.canvas.create_text(
-            self.width - 20, cy, text="✓", fill=BG, font=("Segoe UI", 10, "bold")
+            self.width - 12, cy, text="✓", fill=BG, font=("Segoe UI", 8, "bold")
         )
 
         # waveform bars (center)
@@ -87,12 +91,14 @@ class Overlay:
             self.width // 2, cy, anchor="center", fill=FG, font=("Segoe UI", 9), text="", state="hidden"
         )
 
-        # idle resting mark: a short dim rounded line shown when the app is
-        # alive but not recording — the "I'm here" indicator (Wispr-style).
-        rest_w = 34
-        self._rest = self.canvas.create_line(
-            self.width // 2 - rest_w // 2, cy, self.width // 2 + rest_w // 2, cy,
-            fill=FG_DIM, width=3, capstyle="round", state="hidden",
+        # idle resting pill: a small compact rounded pill shown when the app is
+        # alive but not recording — the "I'm here" indicator (Wispr-style). The
+        # full-width _pill only appears on hover / while active, so at rest the
+        # overlay reads as a neat little pill, not a big empty bar.
+        rest_pw = 46
+        self._rest_pill = self._rounded_rect(
+            self.width // 2 - rest_pw // 2, 3, self.width // 2 + rest_pw // 2, self.height - 3,
+            radius=7, fill=BG, outline=BORDER, width=BORDER_W, state="hidden",
         )
 
         self._place_initial()
@@ -220,8 +226,8 @@ class Overlay:
         for item in (self._btn_x, self._btn_x_label, self._btn_ok, self._btn_ok_label, *self._bars):
             self.canvas.itemconfig(item, state=state)
         self.canvas.itemconfig(self._label, state="hidden" if visible else "normal")
-        self.canvas.itemconfig(self._rest, state="hidden")  # rest mark is idle-only
-        self.canvas.itemconfig(self._pill, state="normal")  # dark box for content states
+        self.canvas.itemconfig(self._rest_pill, state="hidden")  # compact pill is idle-only
+        self.canvas.itemconfig(self._pill, state="normal")  # full-width box for content states
 
     def _pulse(self) -> None:
         """Scroll the waveform with the live mic level."""
@@ -233,7 +239,7 @@ class Overlay:
         self._levels.append(level)
         x0, step, cy = self._bar_geo
         for i, (bar, lv) in enumerate(zip(self._bars, self._levels)):
-            h = 1 + lv * 11  # bar half-height 1..12px
+            h = 1 + lv * 5  # bar half-height 1..6px (fits the slim 20px pill)
             self.canvas.coords(bar, x0 + i * step + 1, cy - h, x0 + (i + 1) * step - 2, cy + h)
         self._pulse_job = self.win.after(70, self._pulse)
 
@@ -251,7 +257,8 @@ class Overlay:
         self._at_rest = True
         self._set_recording_widgets(False)  # hide buttons/bars, also hides _rest
         if hint:
-            self.canvas.itemconfig(self._rest, state="hidden")
+            # startup hint: briefly show the full pill + hotkey, then collapse
+            self.canvas.itemconfig(self._rest_pill, state="hidden")
             self.canvas.itemconfig(self._pill, state="normal")
             self.canvas.itemconfig(
                 self._label, text=f"● {self.hotkey_label}", fill=FG_DIM, state="normal"
@@ -267,14 +274,19 @@ class Overlay:
         self._render_rest()
 
     def _render_rest(self) -> None:
-        """The persistent resting look: a subtle dark pill with a dim mic glyph
-        so the app always reads as a live, clickable control. Hovering expands
-        it to show the hotkey (e.g. '● Ctrl+Win')."""
-        self.canvas.itemconfig(self._rest, state="hidden")
-        self.canvas.itemconfig(self._pill, state="normal")
-        text = f"● {self.hotkey_label}" if self._hovering else "●"
-        fill = FG if self._hovering else FG_DIM
-        self.canvas.itemconfig(self._label, text=text, fill=fill, state="normal")
+        """The persistent resting look. At rest it's a small compact pill with a
+        dim dot (like Wispr) — not a big empty bar. Hovering expands it to the
+        full-width pill showing the hotkey (e.g. '● Ctrl+Win')."""
+        if self._hovering:
+            self.canvas.itemconfig(self._rest_pill, state="hidden")
+            self.canvas.itemconfig(self._pill, state="normal")
+            self.canvas.itemconfig(
+                self._label, text=f"● {self.hotkey_label}", fill=FG, state="normal"
+            )
+        else:
+            self.canvas.itemconfig(self._pill, state="hidden")  # hide the wide box
+            self.canvas.itemconfig(self._rest_pill, state="normal")  # small pill only
+            self.canvas.itemconfig(self._label, text="●", fill=FG_DIM, state="normal")
 
     def _on_hover_enter(self, _event=None) -> None:
         self._hovering = True
