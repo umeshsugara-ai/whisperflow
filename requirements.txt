@@ -1,0 +1,18 @@
+# WhisperFlow — local voice dictation for Windows 11
+# Core STT (already present in the AIOS environment, pinned for reproducibility)
+faster-whisper>=1.2.1
+ctranslate2>=4.7.1
+numpy
+
+# Audio capture
+sounddevice>=0.5.0
+
+# Global hotkey (low-level keyboard hook)
+keyboard>=0.13.5
+
+# Tray icon + generated state icons
+pystray>=0.19.5
+Pillow
+
+# Windows APIs (clipboard, mutex) — usually preinstalled in this env
+pywin32>=311

@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime logs
+logs/
+*.log
+
+# Local runtime state / personal data (do NOT commit)
+# history.jsonl = raw dictation transcripts (personal); overlay_pos.txt = pill position
+history.jsonl
+overlay_pos.txt
+
+# Secrets / local env
+.env
+*.env
+
+# Model caches / large binaries
+models/
+*.bin
+*.pt
+*.onnx
+
+# OS cruft
+Thumbs.db
+.DS_Store

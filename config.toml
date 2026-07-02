@@ -1,0 +1,70 @@
+# WhisperFlow configuration
+# Edit freely; use the tray menu "Reload config" to apply most changes without restart.
+
+[model]
+# Not sure what fits your machine? Run:  python app.py --recommend
+engine = "local"           # local (fully on-device, private) | gemini (BYOK cloud — audio goes to Google)
+
+# --- local engine ---
+# Registry names: large-v3-turbo | large-v3 | medium | small
+# OR any raw HuggingFace CTranslate2 repo id, e.g. "Systran/faster-whisper-medium"
+name = "large-v3-turbo"
+device = "cuda"            # cuda | cpu
+compute_type = "int8_float16"  # int8_float16 (CUDA cc>=7.0) | float16 | int8 (cpu)
+beam_size = 1
+vad = true
+language = "hinglish"      # "" = auto-detect | "en" | "hi" (Devanagari output) |
+                           # "hinglish" = Roman-script Hindi+English mix ("kya tum sun rahe ho")
+
+# --- cloud engine (only when engine = "gemini"; bring your own key) ---
+cloud_model = "gemini-2.5-flash"   # audio-input model; gemini-2.5-pro for higher accuracy
+api_key = ""                        # prefer the env var below instead of pasting a key here
+api_key_env = "GEMINI_API_KEY"      # env var read when api_key is empty
+
+[hotkey]
+combo = "alt+windows"      # keys joined by +; parsed by the `keyboard` library
+# Other good options: "ctrl+windows" | "windows+space" (conflicts with the
+# keyboard-layout switcher if you use multiple input languages)
+# Avoid "alt+space" — it's the Windows system-menu shortcut.
+tap_threshold_ms = 350     # release faster than this = toggle mode; held longer = hold-to-talk
+double_tap_ms = 300        # 0 = off; >0 = double-tap the combo to START dictation
+                           # (Wispr-style). A later single tap stops it.
+
+[audio]
+device = "default"         # "default" = system default (re-checked every recording), or a name substring
+max_seconds = 120          # hard recording cap
+min_seconds = 0.3          # discard shorter recordings
+silence_rms = 0.0005       # below this RMS the recording is treated as silence (no transcription)
+
+[cleanup]
+tier = "rules"             # off | rules | llm (Ollama, local) | gemini (cloud text-polish, BYOK)
+llm_model = "qwen2.5:3b-instruct"
+llm_url = "http://localhost:11434"
+llm_timeout_s = 3.0
+gemini_model = "gemini-2.5-flash-lite"  # cheapest Gemini tier — enough for text polish, keeps cost minimal
+extra_fillers = []         # additional filler words to strip in rules tier, e.g. ["basically"]
+
+[inject]
+method = "auto"            # auto | type | paste
+paste_threshold_chars = 500  # in auto mode, text longer than this uses clipboard-paste
+type_interval_ms = 5       # delay between typed chunks
+
+[dictionary]
+# Vocabulary biases recognition (fed to whisper as initial_prompt)
+vocabulary = ["Vidysea", "Pathlynks", "WhisperFlow"]
+
+# Replacement rules applied to the transcript AFTER STT (case-insensitive match)
+[[dictionary.replacements]]
+from = "vidya sea"
+to = "Vidysea"
+
+[[dictionary.replacements]]
+from = "path links"
+to = "Pathlynks"
+
+[history]
+max_entries = 500          # history.jsonl trimmed to this many entries
+
+[overlay]
+always_visible = true      # keep the pill on-screen at rest so you always see the app is alive
+show_hint = true           # briefly show "Alt+Win to talk" on first show, then fade to a dim pill
