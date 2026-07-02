@@ -91,6 +91,11 @@ class OverlayConfig:
 
 
 @dataclass
+class StartupConfig:
+    auto_register: bool = True  # on first run, register autostart in the HKCU Run key
+
+
+@dataclass
 class HistoryConfig:
     max_entries: int = 500
 
@@ -105,6 +110,7 @@ class Config:
     dictionary: DictionaryConfig = field(default_factory=DictionaryConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
+    startup: StartupConfig = field(default_factory=StartupConfig)
     path: Path = DEFAULT_CONFIG_PATH
 
 
@@ -175,6 +181,9 @@ def load_config(path: Path | str | None = None) -> Config:
         ),
         overlay=OverlayConfig(
             **{k: v for k, v in section("overlay").items() if k in OverlayConfig.__dataclass_fields__}
+        ),
+        startup=StartupConfig(
+            **{k: v for k, v in section("startup").items() if k in StartupConfig.__dataclass_fields__}
         ),
         path=cfg_path,
     )

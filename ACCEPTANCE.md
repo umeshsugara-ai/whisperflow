@@ -73,5 +73,9 @@ Fixtures to speak/inject (also available via `python scripts/test_inject.py --co
 | One full workday of real use, no crash/freeze | ☐ |
 | Bluetooth mic connect/disconnect mid-day picked up + shown in overlay | ☐ |
 | Filler list tuned from real transcripts (edit `[cleanup].extra_fillers`) | ☐ |
-| Reboot → autostart via shell:startup shortcut → first dictation works | ☐ |
+| First run auto-registers autostart (check `HKCU\...\Run\WhisperFlow`); reboot → app reappears, first dictation works | ☐ |
+| Tray → "Start on Windows login" toggles the Run entry; checkmark reflects state | ☐ |
+| `python app.py --install-autostart` / `--uninstall-autostart` add/remove the entry and print status | ☐ |
+| Resting pill is clearly visible (dim `● ` dot); hover expands to show the real hotkey (e.g. `● Alt+Win`), collapses on leave | ☐ |
+| Pill label matches configured combo (change `[hotkey].combo` → restart → label updates) | ☐ |
 | RAM footprint acceptable (Task Manager: expect ~150–250MB + 1.5GB VRAM) | ☐ |

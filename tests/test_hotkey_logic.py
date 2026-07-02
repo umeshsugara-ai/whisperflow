@@ -1,6 +1,17 @@
 """Unit tests for the pure tap-vs-hold discrimination logic (no real hook)."""
 
-from whisperflow.hotkey import HotkeyEvent, HotkeyStateMachine
+from whisperflow.hotkey import HotkeyEvent, HotkeyStateMachine, format_hotkey_label
+
+
+def test_format_hotkey_label_common_combos():
+    assert format_hotkey_label("alt+windows") == "Alt+Win"
+    assert format_hotkey_label("ctrl+windows") == "Ctrl+Win"
+    assert format_hotkey_label("windows+space") == "Win+Space"
+
+
+def test_format_hotkey_label_titlecases_unknown_and_trims():
+    assert format_hotkey_label("ctrl + f9") == "Ctrl+F9"
+    assert format_hotkey_label("SHIFT+alt") == "Shift+Alt"
 
 
 def make_sm() -> HotkeyStateMachine:

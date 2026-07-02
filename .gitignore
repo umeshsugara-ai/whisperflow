@@ -17,8 +17,10 @@ logs/
 
 # Local runtime state / personal data (do NOT commit)
 # history.jsonl = raw dictation transcripts (personal); overlay_pos.txt = pill position
+# .autostart_initialized = one-time marker so autostart is registered only once
 history.jsonl
 overlay_pos.txt
+.autostart_initialized
 
 # Secrets / local env
 .env

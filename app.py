@@ -155,9 +155,10 @@ def run_with_ui(cfg, ctl, listener, history) -> int:
 
     root = tk.Tk()
     root.withdraw()  # no main window — tray + overlay only
-    from whisperflow.hotkey import HotkeyEvent
+    from whisperflow.hotkey import HotkeyEvent, format_hotkey_label
 
     overlay = Overlay(root)
+    overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)  # pill shows the real combo
     overlay.persistent = cfg.overlay.always_visible
     overlay.level_source = lambda: ctl.recorder.last_peak  # live waveform
     overlay.on_cancel = lambda: ctl.handle_hotkey(HotkeyEvent.RECORD_CANCEL)
@@ -269,6 +270,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--headless", action="store_true", help="run without tray/overlay UI")
     ap.add_argument("--recommend", action="store_true", help="detect hardware and suggest the best model, then exit")
+    ap.add_argument("--install-autostart", action="store_true", help="register WhisperFlow to start at Windows login, then exit")
+    ap.add_argument("--uninstall-autostart", action="store_true", help="remove the Windows login autostart entry, then exit")
     ap.add_argument("--config", default=None)
     args = ap.parse_args()
 
@@ -276,6 +279,17 @@ def main() -> int:
         if sys.stdout:
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         return print_recommendation()
+
+    if args.install_autostart or args.uninstall_autostart:
+        from whisperflow import sysinfo
+
+        if args.install_autostart:
+            sysinfo.enable_autostart()
+            print(f"Autostart enabled — WhisperFlow will start at login:\n  {sysinfo.autostart_command()}")
+        else:
+            sysinfo.disable_autostart()
+            print("Autostart disabled — WhisperFlow will no longer start at login.")
+        return 0
 
     setup_logging()
 
@@ -294,6 +308,20 @@ def main() -> int:
     )
 
     from whisperflow import sysinfo
+
+    # First-run autostart: register once so WhisperFlow reappears after a reboot
+    # (Wispr-style). Sentinel-gated so a later opt-out via the tray is never
+    # overridden. Disable entirely with [startup].auto_register = false.
+    sentinel = APP_ROOT / ".autostart_initialized"
+    if cfg.startup.auto_register and not sentinel.exists():
+        try:
+            sysinfo.enable_autostart()
+        except OSError as exc:  # registry unavailable — non-fatal
+            log.warning("could not enable autostart: %s", exc)
+        try:
+            sentinel.write_text("1", encoding="utf-8")
+        except OSError:
+            pass
 
     warning = sysinfo.startup_check(cfg.model, sysinfo.probe())
     if warning:

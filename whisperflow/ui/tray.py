@@ -14,6 +14,7 @@ from typing import Callable
 import pystray
 from pystray import Menu, MenuItem
 
+from whisperflow import sysinfo
 from whisperflow.config import Config
 from whisperflow.history import History
 
@@ -80,12 +81,23 @@ class Tray:
             MenuItem("Copy last RAW transcript", self._copy_raw),
             MenuItem("Copy last injected text", self._copy_injected),
             Menu.SEPARATOR,
+            MenuItem(
+                "Start on Windows login",
+                self._toggle_autostart,
+                checked=lambda item: sysinfo.is_autostart_enabled(),
+            ),
             MenuItem("Open config", self._open_config),
             MenuItem("Reload config", lambda: self.on_reload_config()),
             MenuItem("Open history file", self._open_history),
             Menu.SEPARATOR,
             MenuItem("Quit WhisperFlow", self._quit),
         )
+
+    def _toggle_autostart(self) -> None:
+        if sysinfo.is_autostart_enabled():
+            sysinfo.disable_autostart()
+        else:
+            sysinfo.enable_autostart()
 
     def _set_tier(self, tier: str) -> None:
         self.cfg.cleanup.tier = tier

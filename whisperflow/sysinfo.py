@@ -13,9 +13,61 @@ import ctypes
 import logging
 import os
 import subprocess
+import sys
+import winreg
 from dataclasses import dataclass
+from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# ---- autostart (per-user, windowless, reversible, no admin) ----------------
+# HKCU Run key: Windows launches this command at login. pythonw.exe gives no
+# console window; app.py resolves config/history/logs from its own __file__, so
+# the login-launched process (cwd = system32) still finds everything.
+_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_RUN_VALUE = "WhisperFlow"
+_APP_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _pythonw_path() -> str:
+    """pythonw.exe (windowless) matching the current interpreter."""
+    exe = Path(sys.executable)
+    if exe.name.lower() == "pythonw.exe":
+        return str(exe)
+    cand = exe.with_name("pythonw.exe")
+    if cand.exists():
+        return str(cand)
+    fallback = Path(os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\pythonw.exe"))
+    return str(fallback if fallback.exists() else cand)
+
+
+def autostart_command() -> str:
+    """Exact command written to the Run key — quoted pythonw + quoted app.py."""
+    return f'"{_pythonw_path()}" "{_APP_ROOT / "app.py"}"'
+
+
+def is_autostart_enabled() -> bool:
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, _RUN_VALUE)
+            return bool(value)
+    except FileNotFoundError:
+        return False
+
+
+def enable_autostart() -> None:
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
+        winreg.SetValueEx(key, _RUN_VALUE, 0, winreg.REG_SZ, autostart_command())
+    log.info("autostart enabled: %s", autostart_command())
+
+
+def disable_autostart() -> None:
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            winreg.DeleteValue(key, _RUN_VALUE)
+        log.info("autostart disabled")
+    except FileNotFoundError:
+        pass
 
 
 @dataclass

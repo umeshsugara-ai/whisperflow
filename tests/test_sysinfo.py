@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Model-recommendation ladder + startup mismatch checks (fake specs)."""
 
+from whisperflow import sysinfo
 from whisperflow.config import ModelConfig
 from whisperflow.sysinfo import Recommendation, SystemSpecs, recommend, startup_check
 
@@ -65,3 +66,26 @@ def test_startup_check_flags_big_model_small_vram():
 def test_startup_check_silent_when_matched():
     cfg = ModelConfig(name="large-v3-turbo", device="cuda")
     assert startup_check(cfg, specs(vram_mb=8192, gpu="RTX 4060")) is None
+
+
+# ---- autostart ----
+
+
+def test_autostart_command_is_two_quoted_paths_pythonw_and_app():
+    cmd = sysinfo.autostart_command()
+    assert cmd.count('"') == 4  # "<pythonw>" "<app.py>"
+    assert "pythonw.exe" in cmd.lower()
+    assert cmd.rstrip('"').endswith("app.py")
+
+
+def test_autostart_enable_query_disable_roundtrip(monkeypatch):
+    # throwaway value name so the user's real WhisperFlow Run entry is untouched
+    monkeypatch.setattr(sysinfo, "_RUN_VALUE", "WhisperFlowPytest")
+    try:
+        assert sysinfo.is_autostart_enabled() is False
+        sysinfo.enable_autostart()
+        assert sysinfo.is_autostart_enabled() is True
+    finally:
+        sysinfo.disable_autostart()
+    assert sysinfo.is_autostart_enabled() is False
+    sysinfo.disable_autostart()  # idempotent: no-op when already absent

@@ -30,6 +30,28 @@ from typing import Callable
 log = logging.getLogger(__name__)
 
 
+_LABEL_TOKENS = {
+    "windows": "Win",
+    "win": "Win",
+    "cmd": "Win",
+    "ctrl": "Ctrl",
+    "control": "Ctrl",
+    "alt": "Alt",
+    "shift": "Shift",
+    "space": "Space",
+}
+
+
+def format_hotkey_label(combo: str) -> str:
+    """Human-friendly hotkey label from a combo string, for the overlay pill.
+
+    'alt+windows' -> 'Alt+Win', 'ctrl+windows' -> 'Ctrl+Win',
+    'windows+space' -> 'Win+Space'. Unknown tokens are title-cased.
+    """
+    parts = [p.strip().lower() for p in combo.split("+") if p.strip()]
+    return "+".join(_LABEL_TOKENS.get(p, p.title()) for p in parts)
+
+
 class HotkeyEvent(Enum):
     RECORD_START = auto()  # begin capturing audio
     RECORD_STOP = auto()  # stop and transcribe

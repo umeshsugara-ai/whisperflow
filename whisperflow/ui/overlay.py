@@ -108,6 +108,9 @@ class Overlay:
         self.on_confirm: Callable[[], None] = lambda: None
         self.on_start: Callable[[], None] = lambda: None
         self.persistent: bool = True  # when False, show_idle() hides instead
+        self.hotkey_label: str = "Ctrl+Win"  # set by app.py from cfg.hotkey.combo
+        self._hovering: bool = False
+        self._at_rest: bool = False  # true only in the resting/idle look
 
         # click-vs-drag discrimination
         self._press: tuple[int, int] | None = None
@@ -115,6 +118,9 @@ class Overlay:
         self.canvas.bind("<Button-1>", self._mouse_down)
         self.canvas.bind("<B1-Motion>", self._mouse_move)
         self.canvas.bind("<ButtonRelease-1>", self._mouse_up)
+        # hover-to-reveal the hotkey while resting (Wispr-style)
+        self.canvas.bind("<Enter>", self._on_hover_enter)
+        self.canvas.bind("<Leave>", self._on_hover_leave)
         self.canvas.config(cursor="hand2")  # clickable hand pointer on hover
 
     def _rounded_rect(self, x1, y1, x2, y2, radius, **kwargs) -> int:
@@ -233,36 +239,57 @@ class Overlay:
 
     def show_idle(self, hint: bool = False) -> None:
         """Persistent resting state — the pill stays visible so the user knows
-        the app is alive. No auto-hide. `hint` briefly shows the hotkey tip
-        then fades to the minimal dim mark. When not persistent (config
-        always_visible=false), the pill hides at rest instead (legacy behavior)."""
+        the app is alive. No auto-hide. `hint` briefly shows the hotkey tip,
+        then settles into a compact resting pill that expands on hover. When not
+        persistent (config always_visible=false), the pill hides at rest
+        instead (legacy behavior)."""
         if not self.persistent:
             self.hide()
             return
         self._cancel_jobs()
         self._recording = False
+        self._at_rest = True
         self._set_recording_widgets(False)  # hide buttons/bars, also hides _rest
         if hint:
+            self.canvas.itemconfig(self._rest, state="hidden")
+            self.canvas.itemconfig(self._pill, state="normal")
             self.canvas.itemconfig(
-                self._label, text="Alt+Win to talk", fill=FG_DIM, state="normal"
+                self._label, text=f"● {self.hotkey_label}", fill=FG_DIM, state="normal"
             )
             self._idle_job = self.win.after(4000, self._idle_minimal)
         else:
-            self.canvas.itemconfig(self._label, state="hidden")
-            self.canvas.itemconfig(self._pill, state="hidden")  # boxless — just the line
-            self.canvas.itemconfig(self._rest, state="normal")
+            self._render_rest()
         self._show()
 
     def _idle_minimal(self) -> None:
-        """Fade the hint away, leaving just the dim resting mark (no box)."""
+        """Fade the startup hint away, settling into the compact resting pill."""
         self._idle_job = None
-        self.canvas.itemconfig(self._label, state="hidden")
-        self.canvas.itemconfig(self._pill, state="hidden")  # boxless — just the line
-        self.canvas.itemconfig(self._rest, state="normal")
+        self._render_rest()
+
+    def _render_rest(self) -> None:
+        """The persistent resting look: a subtle dark pill with a dim mic glyph
+        so the app always reads as a live, clickable control. Hovering expands
+        it to show the hotkey (e.g. '● Ctrl+Win')."""
+        self.canvas.itemconfig(self._rest, state="hidden")
+        self.canvas.itemconfig(self._pill, state="normal")
+        text = f"● {self.hotkey_label}" if self._hovering else "●"
+        fill = FG if self._hovering else FG_DIM
+        self.canvas.itemconfig(self._label, text=text, fill=fill, state="normal")
+
+    def _on_hover_enter(self, _event=None) -> None:
+        self._hovering = True
+        if self._at_rest and self._idle_job is None:
+            self._render_rest()
+
+    def _on_hover_leave(self, _event=None) -> None:
+        self._hovering = False
+        if self._at_rest and self._idle_job is None:
+            self._render_rest()
 
     def show_recording(self, device_name: str = "") -> None:
         self._cancel_jobs()
         self._recording = True
+        self._at_rest = False
         self._levels.extend([0.0] * N_BARS)
         self._set_recording_widgets(True)
         self._show()
@@ -271,6 +298,7 @@ class Overlay:
     def show_processing(self) -> None:
         self._cancel_jobs()
         self._recording = False
+        self._at_rest = False
         self._set_recording_widgets(False)
         self.canvas.itemconfig(self._label, text="Transcribing…", fill=ACCENT_PROC)
         self._show()
@@ -278,6 +306,7 @@ class Overlay:
     def flash_done(self, message: str = "Injected ✓") -> None:
         self._cancel_jobs()
         self._recording = False
+        self._at_rest = False
         self._set_recording_widgets(False)
         self.canvas.itemconfig(self._label, text=message, fill=ACCENT_OK)
         self._show()
@@ -286,6 +315,7 @@ class Overlay:
     def flash_error(self, message: str) -> None:
         self._cancel_jobs()
         self._recording = False
+        self._at_rest = False
         self._set_recording_widgets(False)
         self.canvas.itemconfig(self._label, text=message[:28], fill=ACCENT_ERR)
         self._show()
@@ -294,4 +324,5 @@ class Overlay:
     def hide(self) -> None:
         self._cancel_jobs()
         self._recording = False
+        self._at_rest = False
         self.win.withdraw()

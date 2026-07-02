@@ -67,4 +67,10 @@ max_entries = 500          # history.jsonl trimmed to this many entries
 
 [overlay]
 always_visible = true      # keep the pill on-screen at rest so you always see the app is alive
-show_hint = true           # briefly show "Alt+Win to talk" on first show, then fade to a dim pill
+show_hint = true           # briefly show the hotkey (e.g. "● Alt+Win") on first show, then
+                           # settle to a compact resting pill that expands on hover
+
+[startup]
+auto_register = true       # on first run, register WhisperFlow to start at Windows login
+                           # (HKCU Run key, windowless). Toggle anytime via tray → "Start on
+                           # Windows login", or run: python app.py --install/--uninstall-autostart

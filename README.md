@@ -48,7 +48,17 @@ Detects your GPU/VRAM/RAM/CPU and prints the best `[model]` settings for your ma
 
 ## Autostart on boot
 
-`Win+R` → `shell:startup` → create a shortcut to `run.vbs`.
+WhisperFlow registers itself to start automatically at Windows login on first run
+(a per-user `HKCU\...\Run` entry that launches it windowless via `pythonw.exe` — no
+admin, fully reversible). After a reboot the resting pill just reappears.
+
+- Turn it off/on anytime: tray → **"Start on Windows login"**.
+- Or from a terminal: `python app.py --install-autostart` / `python app.py --uninstall-autostart`.
+- To opt out of the first-run auto-registration entirely, set `[startup].auto_register = false`
+  in `config.toml` before the first launch.
+
+(The older manual method — `Win+R` → `shell:startup` → shortcut to `run.vbs` — still works
+but is no longer needed.)
 
 ## Privacy & history
 
