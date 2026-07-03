@@ -190,6 +190,26 @@ def test_prompt_echo_dropped_in_pipeline():
     ctl.shutdown()
 
 
+def test_clipboard_fallback_method_recorded():
+    results = []
+    details = []
+    ctl = Controller(
+        recorder=FakeRecorder(),
+        engine=FakeEngine(),
+        inject_text=lambda text: "clipboard (focus changed)",
+        on_state=lambda s, d: details.append((s, d)),
+        on_result=lambda r: results.append(r),
+    )
+    ctl.start()
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert results[0].method == "clipboard (focus changed)"
+    idle_details = [d for s, d in details if s is State.IDLE]
+    assert any("clipboard" in d for d in idle_details)
+    ctl.shutdown()
+
+
 def test_process_text_hook_applied():
     ctl, states, results, injected = build()
     ctl.process_text = lambda text, lang: (text.upper(), "rules")

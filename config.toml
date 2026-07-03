@@ -46,8 +46,12 @@ extra_fillers = []         # additional filler words to strip in rules tier, e.g
 
 [inject]
 method = "auto"            # auto | type | paste
-paste_threshold_chars = 500  # in auto mode, text longer than this uses clipboard-paste
+paste_threshold_chars = 1500  # in auto mode, text longer than this uses clipboard-paste
 type_interval_ms = 5       # delay between typed chunks
+modifier_release_timeout_ms = 2000  # wait (ms) for Ctrl/Alt/Shift/Win to be physically released
+                           # before injecting — held modifiers corrupt typed text. 0 = off.
+clipboard_restore_delay_ms = 600    # paste mode: time the target app gets to read the clipboard
+                           # before the previous clipboard content is restored
 
 [dictionary]
 # Vocabulary biases recognition (fed to whisper as initial_prompt)

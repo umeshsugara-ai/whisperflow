@@ -1,7 +1,13 @@
 ' WhisperFlow launcher — starts the dictation daemon without a console window.
-' To autostart on boot: Win+R -> shell:startup -> place a shortcut to this file.
-Dim shell, appDir
+' Registered in the HKCU Run key by the app itself (whisperflow/sysinfo.py):
+' wscript.exe //B run.vbs. Launches the python.exe alias (Store Python's
+' pythonw.exe alias fails silently at logon) with the window hidden.
+' Also works from shell:startup or a double-click.
+Dim shell, fso, appDir, python
 Set shell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
 appDir = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\") - 1)
 shell.CurrentDirectory = appDir
-shell.Run """C:\Users\Lenovo\AppData\Local\Microsoft\WindowsApps\pythonw.exe"" """ & appDir & "\app.py""", 0, False
+python = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Microsoft\WindowsApps\python.exe"
+If Not fso.FileExists(python) Then python = "python.exe"
+shell.Run """" & python & """ """ & appDir & "\app.py"" --autostart", 0, False

@@ -71,11 +71,21 @@ def test_startup_check_silent_when_matched():
 # ---- autostart ----
 
 
-def test_autostart_command_is_two_quoted_paths_pythonw_and_app():
+def test_autostart_command_store_python_uses_wscript(monkeypatch):
+    monkeypatch.setattr(sysinfo, "_is_store_python", lambda: True)
     cmd = sysinfo.autostart_command()
-    assert cmd.count('"') == 4  # "<pythonw>" "<app.py>"
+    assert "wscript.exe" in cmd.lower()
+    assert cmd.rstrip('"').lower().endswith("run.vbs")
+    assert "//B" in cmd
+    assert "pythonw" not in cmd.lower()  # the silently-failing alias must never be registered
+
+
+def test_autostart_command_non_store_uses_pythonw(monkeypatch):
+    monkeypatch.setattr(sysinfo, "_is_store_python", lambda: False)
+    cmd = sysinfo.autostart_command()
     assert "pythonw.exe" in cmd.lower()
-    assert cmd.rstrip('"').endswith("app.py")
+    assert cmd.endswith(" --autostart")
+    assert '"' + str(sysinfo._APP_ROOT / "app.py") + '"' in cmd
 
 
 def test_autostart_enable_query_disable_roundtrip(monkeypatch):
@@ -83,9 +93,47 @@ def test_autostart_enable_query_disable_roundtrip(monkeypatch):
     monkeypatch.setattr(sysinfo, "_RUN_VALUE", "WhisperFlowPytest")
     try:
         assert sysinfo.is_autostart_enabled() is False
+        assert sysinfo.get_autostart_command() is None
         sysinfo.enable_autostart()
         assert sysinfo.is_autostart_enabled() is True
+        assert sysinfo.get_autostart_command() == sysinfo.autostart_command()
     finally:
         sysinfo.disable_autostart()
     assert sysinfo.is_autostart_enabled() is False
     sysinfo.disable_autostart()  # idempotent: no-op when already absent
+
+
+def test_ensure_autostart_first_run_registers_and_writes_sentinel(monkeypatch, tmp_path):
+    monkeypatch.setattr(sysinfo, "_RUN_VALUE", "WhisperFlowPytest")
+    sentinel = tmp_path / ".autostart_initialized"
+    try:
+        sysinfo.ensure_autostart(sentinel)
+        assert sysinfo.get_autostart_command() == sysinfo.autostart_command()
+        assert sentinel.exists()
+    finally:
+        sysinfo.disable_autostart()
+
+
+def test_ensure_autostart_heals_stale_entry(monkeypatch, tmp_path):
+    import winreg
+
+    monkeypatch.setattr(sysinfo, "_RUN_VALUE", "WhisperFlowPytest")
+    sentinel = tmp_path / ".autostart_initialized"
+    sentinel.write_text("1", encoding="utf-8")
+    try:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, sysinfo._RUN_KEY) as key:
+            winreg.SetValueEx(
+                key, "WhisperFlowPytest", 0, winreg.REG_SZ, '"broken\\pythonw.exe" "app.py"'
+            )
+        sysinfo.ensure_autostart(sentinel)
+        assert sysinfo.get_autostart_command() == sysinfo.autostart_command()
+    finally:
+        sysinfo.disable_autostart()
+
+
+def test_ensure_autostart_respects_opt_out(monkeypatch, tmp_path):
+    monkeypatch.setattr(sysinfo, "_RUN_VALUE", "WhisperFlowPytest")
+    sentinel = tmp_path / ".autostart_initialized"
+    sentinel.write_text("1", encoding="utf-8")  # user disabled via tray after first run
+    sysinfo.ensure_autostart(sentinel)
+    assert sysinfo.get_autostart_command() is None  # must NOT re-register

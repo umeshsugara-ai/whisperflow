@@ -18,9 +18,13 @@ logs/
 # Local runtime state / personal data (do NOT commit)
 # history.jsonl = raw dictation transcripts (personal); overlay_pos.txt = pill position
 # .autostart_initialized = one-time marker so autostart is registered only once
+# stats.json = lifetime dictation stats rollup; config.toml.bak/.tmp = save_config artifacts
 history.jsonl
 overlay_pos.txt
 .autostart_initialized
+stats.json
+config.toml.bak
+config.toml.tmp
 
 # Secrets / local env
 .env

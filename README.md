@@ -62,8 +62,20 @@ Claude Code will run the commands, edit `config.toml`, launch the app, and verif
 | Hold-to-talk | Hold **Ctrl+Win**, speak, release → text is injected |
 | Toggle mode | Tap **Ctrl+Win** (<350ms), speak freely, tap again to finish |
 | Cancel a recording | **Esc** |
-| Get the raw (uncleaned) transcript | Tray → "Copy last RAW transcript" |
-| Switch cleanup level live | Tray → Cleanup tier → Off / Rules / LLM |
+| Open the app window | **Double-click the tray icon** — Home (stats + recent), History, Dictionary, Settings |
+| Get the raw (uncleaned) transcript | Tray → "Copy last RAW transcript", or the History screen |
+| Switch cleanup level live | Settings screen, or Tray → Cleanup tier (persists now) |
+
+### The app window
+
+Double-click the tray icon (or tray → "Open WhisperFlow") for the main window:
+
+- **Home** — lifetime stats (total words, average WPM, day streak, dictations), a plain-language status strip ("All good ✓" or recent warnings), and your latest dictations with one-click copy.
+- **History** — searchable list of every dictation with the RAW and cleaned text side by side.
+- **Dictionary** — add vocabulary words and "when I say → write instead" rules; saved straight to config.toml.
+- **Settings** — hotkey, language, cleanup tier, overlay pill, start-on-login. No config-file editing needed; restart-required fields say so.
+
+Closing the window just hides it — WhisperFlow keeps running in the tray.
 
 ## Which model should I use?
 
@@ -85,20 +97,22 @@ Detects your GPU/VRAM/RAM/CPU and prints the best `[model]` settings for your ma
 ## Autostart on boot
 
 WhisperFlow registers itself to start automatically at Windows login on first run
-(a per-user `HKCU\...\Run` entry that launches it windowless via `pythonw.exe` — no
-admin, fully reversible). After a reboot the resting pill just reappears.
+(a per-user `HKCU\...\Run` entry — no admin, fully reversible). With Store Python the
+entry launches `wscript.exe //B run.vbs`, which starts the app hidden via the
+`python.exe` alias — Store Python's `pythonw.exe` alias fails silently at logon, so
+it is never used. The entry also **self-heals**: if it goes stale (moved folder,
+changed Python, an old broken command), the next manual launch rewrites it.
+After a reboot the resting pill just reappears; the log line
+`started via Windows logon autostart` confirms it worked.
 
-- Turn it off/on anytime: tray → **"Start on Windows login"**.
+- Turn it off/on anytime: Settings screen or tray → **"Start on Windows login"**.
 - Or from a terminal: `python app.py --install-autostart` / `python app.py --uninstall-autostart`.
 - To opt out of the first-run auto-registration entirely, set `[startup].auto_register = false`
   in `config.toml` before the first launch.
 
-(The older manual method — `Win+R` → `shell:startup` → shortcut to `run.vbs` — still works
-but is no longer needed.)
-
 ## Privacy & history
 
-Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local file, trimmed to `[history].max_entries`). Tray → "Open history" to inspect, or delete the file anytime. Audio is never written to disk.
+Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local file, trimmed to `[history].max_entries`), and lifetime totals roll up into `stats.json` (word/dictation counts only — no text). Open the History screen to inspect, or clear it from there anytime. Audio is never written to disk.
 
 ## Known limitations
 
@@ -109,7 +123,7 @@ Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local f
 ## Development
 
 ```powershell
-python -m pytest tests/ -q          # 69 unit tests
+python -m pytest tests/ -q          # 108 unit tests
 python scripts/test_inject.py --self-test
 python scripts/test_overlay.py --cycle
 python scripts/test_stt.py --smoke

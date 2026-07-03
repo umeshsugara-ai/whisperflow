@@ -21,9 +21,14 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 # ---- autostart (per-user, windowless, reversible, no admin) ----------------
-# HKCU Run key: Windows launches this command at login. pythonw.exe gives no
-# console window; app.py resolves config/history/logs from its own __file__, so
-# the login-launched process (cwd = system32) still finds everything.
+# HKCU Run key: Windows launches this command at login. app.py resolves
+# config/history/logs from its own __file__, so the login-launched process
+# (cwd = system32) still finds everything.
+#
+# Store Python gotcha: its pythonw.exe is a 0-byte app-execution alias that
+# fails SILENTLY when launched from the Run key — the app simply never starts.
+# For Store Python we therefore register wscript.exe + run.vbs (a real system
+# exe launching the python.exe alias with a hidden window) instead.
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _RUN_VALUE = "WhisperFlow"
 _APP_ROOT = Path(__file__).resolve().parent.parent
@@ -41,18 +46,62 @@ def _pythonw_path() -> str:
     return str(fallback if fallback.exists() else cand)
 
 
+def _is_store_python() -> bool:
+    return "windowsapps" in str(Path(sys.executable)).lower()
+
+
 def autostart_command() -> str:
-    """Exact command written to the Run key — quoted pythonw + quoted app.py."""
-    return f'"{_pythonw_path()}" "{_APP_ROOT / "app.py"}"'
+    """Exact command written to the Run key."""
+    app_py = _APP_ROOT / "app.py"
+    if _is_store_python():
+        wscript = Path(os.path.expandvars(r"%SystemRoot%\System32\wscript.exe"))
+        run_vbs = _APP_ROOT / "run.vbs"
+        if wscript.exists() and run_vbs.exists():
+            return f'"{wscript}" //B "{run_vbs}"'
+        # last resort: the python.exe alias demonstrably launches (unlike
+        # pythonw) but keeps a console window open for the app's lifetime
+        log.warning("wscript.exe or run.vbs missing — autostart will show a console window")
+        python = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe")
+        return f'"{python}" "{app_py}" --autostart'
+    return f'"{_pythonw_path()}" "{app_py}" --autostart'
 
 
-def is_autostart_enabled() -> bool:
+def get_autostart_command() -> str | None:
+    """The raw command currently registered in the Run key, or None."""
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
             value, _ = winreg.QueryValueEx(key, _RUN_VALUE)
-            return bool(value)
+            return str(value)
     except FileNotFoundError:
-        return False
+        return None
+
+
+def is_autostart_enabled() -> bool:
+    return bool(get_autostart_command())
+
+
+def ensure_autostart(sentinel: Path) -> None:
+    """First-run registration + self-healing of stale entries.
+
+    - no entry, no sentinel  -> true first run: register + write sentinel
+    - no entry, sentinel     -> user opted out (tray toggle): leave it alone
+    - entry != desired       -> stale (broken pythonw alias, moved repo,
+                                changed interpreter): re-register
+    """
+    try:
+        current = get_autostart_command()
+        desired = autostart_command()
+        if current is None:
+            if sentinel.exists():
+                return
+            enable_autostart()
+        elif current != desired:
+            enable_autostart()
+            log.info("autostart entry was stale — re-registered")
+        if not sentinel.exists():
+            sentinel.write_text("1", encoding="utf-8")
+    except OSError as exc:  # registry/filesystem unavailable — non-fatal
+        log.warning("could not ensure autostart: %s", exc)
 
 
 def enable_autostart() -> None:

@@ -46,15 +46,40 @@ def acquire_single_instance() -> bool:
     return ctypes.windll.kernel32.GetLastError() != ERROR_ALREADY_EXISTS
 
 
+# Last N WARNING+ records, surfaced in plain language on the main window's
+# Home screen so non-technical users never have to open the raw log file.
+_recent_warnings: "deque[str]" = None  # type: ignore[assignment]  # built in setup_logging
+
+
+class _WarningBuffer(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            stamp = time.strftime("%d %b %H:%M", time.localtime(record.created))
+            _recent_warnings.append(f"{stamp} — {record.getMessage()}")
+        except Exception:  # noqa: BLE001 — logging must never crash the app
+            pass
+
+
+def recent_warnings() -> list[str]:
+    return list(_recent_warnings) if _recent_warnings is not None else []
+
+
 def setup_logging() -> None:
+    from collections import deque
     from logging.handlers import RotatingFileHandler
+
+    global _recent_warnings
+    _recent_warnings = deque(maxlen=50)
 
     log_dir = APP_ROOT / "logs"
     log_dir.mkdir(exist_ok=True)
-    handlers = [
+    warn_buffer = _WarningBuffer()
+    warn_buffer.setLevel(logging.WARNING)
+    handlers: list[logging.Handler] = [
         RotatingFileHandler(
             log_dir / "whisperflow.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8"
-        )
+        ),
+        warn_buffer,
     ]
     if sys.stdout is not None:  # pythonw.exe has no console
         handlers.append(logging.StreamHandler())
@@ -154,7 +179,7 @@ def run_with_ui(cfg, ctl, listener, history) -> int:
     from whisperflow.ui.tray import Tray
 
     root = tk.Tk()
-    root.withdraw()  # no main window — tray + overlay only
+    root.withdraw()  # the root stays hidden — MainWindow/overlay are Toplevels
     from whisperflow.hotkey import HotkeyEvent, format_hotkey_label
 
     overlay = Overlay(root)
@@ -176,7 +201,7 @@ def run_with_ui(cfg, ctl, listener, history) -> int:
             overlay.post(overlay.flash_error, f"Error: {detail}")
         else:  # IDLE
             if "clipboard" in detail:
-                overlay.post(overlay.flash_done, "Copied — focus changed")
+                overlay.post(overlay.flash_warn, "Copied — press Ctrl+V")
             elif detail.startswith("injected"):
                 overlay.post(overlay.flash_done, "Injected ✓")
             else:
@@ -191,6 +216,16 @@ def run_with_ui(cfg, ctl, listener, history) -> int:
     def on_tier_change(tier: str) -> None:
         rebuild_processor()
 
+    def apply_live() -> None:
+        """Apply the live-appliable parts of cfg (after a Settings save or a
+        file reload). Model/hotkey changes still need a restart."""
+        rebuild_processor()
+        ctl.initial_prompt = vocabulary_prompt(cfg.dictionary)
+        overlay.persistent = cfg.overlay.always_visible
+        overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)
+        if ctl.state is State.IDLE:  # don't disturb an active recording UI
+            root.after(0, overlay.show_idle)
+
     def on_reload_config() -> None:
         try:
             fresh = load_config(cfg.path)
@@ -203,21 +238,27 @@ def run_with_ui(cfg, ctl, listener, history) -> int:
         cfg.inject = fresh.inject
         cfg.dictionary = fresh.dictionary
         cfg.audio = fresh.audio
-        rebuild_processor()
-        from whisperflow.dictionary import vocabulary_prompt as vp
-
-        ctl.initial_prompt = vp(cfg.dictionary)
+        cfg.overlay = fresh.overlay
+        apply_live()
         log.info("config reloaded (model/hotkey changes need restart)")
 
     def on_quit() -> None:
         root.after(0, root.quit)
 
-    def on_open_viewer() -> None:
-        from whisperflow.ui.history_view import HistoryViewer
+    def on_open_main(tab: str = "home") -> None:
+        from whisperflow.ui.main_window import MainWindow
 
-        root.after(0, lambda: HistoryViewer(root, history))
+        root.after(
+            0,
+            lambda: MainWindow.open(
+                root, cfg, history,
+                apply_config=apply_live,
+                warnings_source=recent_warnings,
+                tab=tab,
+            ),
+        )
 
-    tray = Tray(cfg, history, on_reload_config, on_quit, on_tier_change, on_open_viewer)
+    tray = Tray(cfg, history, on_reload_config, on_quit, on_tier_change, on_open_main)
     ctl.on_state = on_state
     ctl.start()
     listener.start()
@@ -272,6 +313,7 @@ def main() -> int:
     ap.add_argument("--recommend", action="store_true", help="detect hardware and suggest the best model, then exit")
     ap.add_argument("--install-autostart", action="store_true", help="register WhisperFlow to start at Windows login, then exit")
     ap.add_argument("--uninstall-autostart", action="store_true", help="remove the Windows login autostart entry, then exit")
+    ap.add_argument("--autostart", action="store_true", help=argparse.SUPPRESS)  # set by the logon Run entry
     ap.add_argument("--config", default=None)
     args = ap.parse_args()
 
@@ -293,6 +335,9 @@ def main() -> int:
 
     setup_logging()
 
+    if args.autostart:
+        log.info("started via Windows logon autostart")
+
     if not acquire_single_instance():
         log.error("WhisperFlow is already running — exiting.")
         print("WhisperFlow is already running.")
@@ -309,19 +354,12 @@ def main() -> int:
 
     from whisperflow import sysinfo
 
-    # First-run autostart: register once so WhisperFlow reappears after a reboot
-    # (Wispr-style). Sentinel-gated so a later opt-out via the tray is never
-    # overridden. Disable entirely with [startup].auto_register = false.
-    sentinel = APP_ROOT / ".autostart_initialized"
-    if cfg.startup.auto_register and not sentinel.exists():
-        try:
-            sysinfo.enable_autostart()
-        except OSError as exc:  # registry unavailable — non-fatal
-            log.warning("could not enable autostart: %s", exc)
-        try:
-            sentinel.write_text("1", encoding="utf-8")
-        except OSError:
-            pass
+    # Autostart: register on first run and self-heal stale entries (e.g. the
+    # broken Store-Python pythonw command) so WhisperFlow reappears after a
+    # reboot (Wispr-style). Sentinel-gated so a later opt-out via the tray is
+    # never overridden. Disable entirely with [startup].auto_register = false.
+    if cfg.startup.auto_register:
+        sysinfo.ensure_autostart(APP_ROOT / ".autostart_initialized")
 
     warning = sysinfo.startup_check(cfg.model, sysinfo.probe())
     if warning:

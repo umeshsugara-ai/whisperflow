@@ -1,7 +1,11 @@
 """System tray icon + menu (pystray, runs on its own thread).
 
-Menu: mode readout · cleanup tier radio (live toggle) · copy last RAW /
-injected · open/reload config · open history · quit.
+Menu: mode readout · open main window (default) / history / settings ·
+cleanup tier radio (live toggle, persisted) · copy last RAW / injected ·
+open/reload config · quit.
+
+Callbacks that open windows must NOT touch tkinter here — app.py marshals
+them onto the tk main thread via root.after.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ import pystray
 from pystray import Menu, MenuItem
 
 from whisperflow import sysinfo
-from whisperflow.config import Config
+from whisperflow.config import Config, save_config
 from whisperflow.history import History
 
 from . import icons
@@ -37,14 +41,14 @@ class Tray:
         on_reload_config: Callable[[], None],
         on_quit: Callable[[], None],
         on_tier_change: Callable[[str], None],
-        on_open_viewer: Callable[[], None] = lambda: None,
+        on_open_main: Callable[[str], None] = lambda tab: None,
     ) -> None:
         self.cfg = cfg
         self.history = history
         self.on_reload_config = on_reload_config
         self.on_quit = on_quit
         self.on_tier_change = on_tier_change
-        self.on_open_viewer = on_open_viewer
+        self.on_open_main = on_open_main
         self._icons = icons.all_state_icons()
         self._status_line = "idle"
 
@@ -67,6 +71,10 @@ class Tray:
         return Menu(
             MenuItem(lambda item: f"Status: {self._status_line}", None, enabled=False),
             Menu.SEPARATOR,
+            MenuItem("Open WhisperFlow", lambda: self.on_open_main("home"), default=True),
+            MenuItem("History", lambda: self.on_open_main("history")),
+            MenuItem("Settings", lambda: self.on_open_main("settings")),
+            Menu.SEPARATOR,
             MenuItem(
                 "Cleanup tier",
                 Menu(
@@ -76,8 +84,6 @@ class Tray:
                     tier_item("gemini", "LLM (Gemini cloud — text only)"),
                 ),
             ),
-            Menu.SEPARATOR,
-            MenuItem("History viewer", lambda: self.on_open_viewer(), default=True),
             MenuItem("Copy last RAW transcript", self._copy_raw),
             MenuItem("Copy last injected text", self._copy_injected),
             Menu.SEPARATOR,
@@ -88,7 +94,6 @@ class Tray:
             ),
             MenuItem("Open config", self._open_config),
             MenuItem("Reload config", lambda: self.on_reload_config()),
-            MenuItem("Open history file", self._open_history),
             Menu.SEPARATOR,
             MenuItem("Quit WhisperFlow", self._quit),
         )
@@ -102,6 +107,10 @@ class Tray:
     def _set_tier(self, tier: str) -> None:
         self.cfg.cleanup.tier = tier
         self.on_tier_change(tier)
+        try:
+            save_config(self.cfg)  # persists — tier used to silently reset on restart
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not persist tier change: %s", exc)
         log.info("cleanup tier -> %s", tier)
 
     def _copy_raw(self) -> None:
@@ -116,10 +125,6 @@ class Tray:
 
     def _open_config(self) -> None:
         os.startfile(str(self.cfg.path))  # noqa: S606
-
-    def _open_history(self) -> None:
-        if self.history.path.exists():
-            os.startfile(str(self.history.path))  # noqa: S606
 
     def _quit(self) -> None:
         self.icon.stop()

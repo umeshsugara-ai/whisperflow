@@ -102,11 +102,13 @@ def write_text(text: str) -> None:
         win32clipboard.CloseClipboard()
 
 
-def paste_text(text: str, restore_delay_ms: int = 300) -> None:
+def paste_text(text: str, restore_delay_ms: int = 600) -> None:
     """Set clipboard to `text`, simulate Ctrl+V, then restore prior text content.
 
     restore_delay_ms gives the target app time to read the clipboard before we
     restore — too short and the paste lands with the OLD clipboard content.
+    The snapshot is only restored if the clipboard still holds OUR text: if the
+    user or another app changed it meanwhile, restoring would clobber theirs.
     """
     snapshot = read_text()
     write_text(text)
@@ -122,4 +124,9 @@ def paste_text(text: str, restore_delay_ms: int = 300) -> None:
         time.sleep(restore_delay_ms / 1000.0)
     finally:
         if snapshot is not None:
-            write_text(snapshot)
+            try:
+                unchanged = read_text() == text
+            except Exception:
+                unchanged = False
+            if unchanged:
+                write_text(snapshot)

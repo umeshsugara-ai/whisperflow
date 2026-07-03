@@ -13,7 +13,9 @@ events first, clipboard only when length makes typing slow.
 
 from __future__ import annotations
 
+import ctypes
 import logging
+import time
 
 from whisperflow.config import InjectConfig
 
@@ -21,9 +23,36 @@ from . import clipboard, sendinput
 
 log = logging.getLogger(__name__)
 
+# Shift, Ctrl, Alt, LWin, RWin — any of these held during injection turns
+# typed characters into accidental shortcuts (Win+V, Alt+letter menus, ...).
+_MODIFIER_VKS = (0x10, 0x11, 0x12, 0x5B, 0x5C)
+
 
 class InjectionError(RuntimeError):
     """All applicable injection tiers failed."""
+
+
+def _modifiers_down() -> bool:
+    user32 = ctypes.windll.user32
+    return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MODIFIER_VKS)
+
+
+def _wait_modifiers_released(timeout_ms: int) -> None:
+    """Block until the user physically releases all modifier keys.
+
+    The hotkey combo (e.g. Alt+Win) is often still held when a toggle-stop
+    fires; injecting under held modifiers drops or reinterprets keystrokes.
+    """
+    if timeout_ms <= 0:
+        return
+    deadline = time.monotonic() + timeout_ms / 1000.0
+    while _modifiers_down():
+        if time.monotonic() >= deadline:
+            log.warning(
+                "modifier keys still held after %.1fs — injecting anyway", timeout_ms / 1000.0
+            )
+            return
+        time.sleep(0.015)
 
 
 def inject(text: str, cfg: InjectConfig) -> str:
@@ -31,12 +60,14 @@ def inject(text: str, cfg: InjectConfig) -> str:
     if not text:
         return "none"
 
+    _wait_modifiers_released(cfg.modifier_release_timeout_ms)
+
     if cfg.method == "type":
         sendinput.type_text(text, interval_ms=cfg.type_interval_ms)
         return "type"
 
     if cfg.method == "paste":
-        clipboard.paste_text(text)
+        clipboard.paste_text(text, restore_delay_ms=cfg.clipboard_restore_delay_ms)
         return "paste"
 
     # auto
@@ -46,8 +77,8 @@ def inject(text: str, cfg: InjectConfig) -> str:
             return "type"
         except OSError as exc:
             log.warning("type-injection failed (%s); falling back to paste", exc)
-            clipboard.paste_text(text)
+            clipboard.paste_text(text, restore_delay_ms=cfg.clipboard_restore_delay_ms)
             return "paste-fallback"
     else:
-        clipboard.paste_text(text)
+        clipboard.paste_text(text, restore_delay_ms=cfg.clipboard_restore_delay_ms)
         return "paste"

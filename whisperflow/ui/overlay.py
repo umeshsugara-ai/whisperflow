@@ -326,6 +326,17 @@ class Overlay:
         self._show()
         self._hide_job = self.win.after(1200, self.show_idle)
 
+    def flash_warn(self, message: str, duration_ms: int = 4000) -> None:
+        """Amber attention flash — for outcomes that need the user to act
+        (e.g. 'Copied — press Ctrl+V'). Holds longer than flash_done."""
+        self._cancel_jobs()
+        self._recording = False
+        self._at_rest = False
+        self._set_recording_widgets(False)
+        self.canvas.itemconfig(self._label, text=message[:28], fill=ACCENT_PROC)
+        self._show()
+        self._hide_job = self.win.after(duration_ms, self.show_idle)
+
     def flash_error(self, message: str) -> None:
         self._cancel_jobs()
         self._recording = False
