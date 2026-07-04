@@ -20,7 +20,7 @@ if sys.stdout:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from whisperflow.audio import Recorder
-from whisperflow.config import load_config
+from whisperflow.config import load_config, load_dotenv
 from whisperflow.controller import Controller, DictationResult, State
 from whisperflow.dictionary import vocabulary_prompt
 from whisperflow.history import History
@@ -342,6 +342,8 @@ def main() -> int:
     ap.add_argument("--autostart", action="store_true", help=argparse.SUPPRESS)  # set by the logon Run entry
     ap.add_argument("--config", default=None)
     args = ap.parse_args()
+
+    load_dotenv()  # .env next to app.py — the easy home for GEMINI_API_KEY
 
     if args.recommend:
         if sys.stdout:

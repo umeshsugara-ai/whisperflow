@@ -124,6 +124,32 @@ class ConfigError(ValueError):
     """Raised when config.toml has an invalid value."""
 
 
+def load_dotenv(path: Path | None = None) -> int:
+    """Load KEY=VALUE lines from a .env file into os.environ; existing vars win.
+
+    The non-technical way to provide secrets like GEMINI_API_KEY: a `.env`
+    file next to app.py (gitignored, never committed). Missing file is fine.
+    Returns the number of variables set.
+    """
+    env_path = Path(path) if path else APP_ROOT / ".env"
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except (FileNotFoundError, OSError):
+        return 0
+    count = 0
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+            count += 1
+    return count
+
+
 def _validate(cfg: Config) -> None:
     m = cfg.model
     if m.engine not in VALID_ENGINES:

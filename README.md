@@ -36,14 +36,22 @@ Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recomme
    ```powershell
    python app.py --recommend
    ```
-   Paste the printed `[model]` block into `config.toml`. No NVIDIA GPU? It suggests `small` on CPU, or the **Gemini cloud** engine — set the `GEMINI_API_KEY` env var.
-4. **Tune `config.toml`:** set `[hotkey].combo` (e.g. `ctrl+windows` or `alt+windows`) and `[model].language` (`""` auto, `en`, `hi`, `hinglish`).
-5. **First run:**
+   Paste the printed `[model]` block into `config.toml`. No NVIDIA GPU? It suggests `small` on CPU, or the **Gemini cloud** engine — see the API-key step below.
+4. **API key (only if using the Gemini cloud engine or `gemini` cleanup tier — skip otherwise):**
+   create a file named `.env` in the WhisperFlow folder (next to `app.py`) containing:
+   ```
+   GEMINI_API_KEY=paste-your-key-here
+   ```
+   Get a free key at https://aistudio.google.com/apikey. The `.env` file is gitignored —
+   your key stays on your machine. (Alternative: a Windows user env var —
+   `setx GEMINI_API_KEY "your-key"`, then sign out and back in.)
+5. **Tune `config.toml`:** set `[hotkey].combo` (e.g. `ctrl+windows` or `alt+windows`) and `[model].language` (`""` auto, `en`, `hi`, `hinglish`).
+6. **First run:**
    ```powershell
    python app.py
    ```
-   Downloads the model (~1.5GB) and **auto-registers autostart**. A slim pill appears at the bottom of the screen; hover it to see the hotkey.
-6. **Reboot** → it launches automatically (windowless). Toggle anytime via tray → **"Start on Windows login"**, or `python app.py --install-autostart` / `--uninstall-autostart`.
+   Downloads the model (~1.5GB), **auto-registers autostart**, and opens the app window. A slim pill also appears at the bottom of the screen; hover it to see the hotkey.
+7. **Reboot** → it launches automatically (windowless, pill only). Toggle anytime via Settings or tray → **"Start on Windows login"**, or `python app.py --install-autostart` / `--uninstall-autostart`.
 
 **If dictation types nothing:** Windows → Sound → **Input** → confirm the mic isn't muted/at 0 and the Test bar moves when you speak (and any Nahimic/Realtek mic effect isn't muting it).
 
@@ -51,7 +59,7 @@ Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recomme
 
 Prefer to let an AI agent do the setup? Install [Claude Code](https://claude.com/claude-code), open a terminal in an empty folder, and paste a prompt like:
 
-> Clone `https://github.com/umeshsugara-ai/whisperflow` (I have collaborator access) and set up WhisperFlow on my Windows machine: install `requirements.txt` with my Python 3.13, run `python app.py --recommend` and update `config.toml` `[model]` to match my hardware, set `[hotkey].combo` to `"ctrl+windows"`, then launch `python app.py` and confirm the log at `logs/whisperflow.log` reaches the "ready" line. If I have no NVIDIA GPU, configure the Gemini cloud engine instead and tell me to set `GEMINI_API_KEY`.
+> Clone `https://github.com/umeshsugara-ai/whisperflow` (I have collaborator access) and set up WhisperFlow on my Windows machine: install `requirements.txt` with my Python 3.13, run `python app.py --recommend` and update `config.toml` `[model]` to match my hardware, set `[hotkey].combo` to `"ctrl+windows"`, then launch `python app.py` and confirm the log at `logs/whisperflow.log` reaches the "ready" line. If I have no NVIDIA GPU, configure the Gemini cloud engine instead, ask me for my GEMINI_API_KEY, and put it in a `.env` file next to app.py.
 
 Claude Code will run the commands, edit `config.toml`, launch the app, and verify it reaches the **ready** state — then autostart takes over on the next reboot. Point it at the sections of this README if it needs model/config details.
 
@@ -89,7 +97,7 @@ Detects your GPU/VRAM/RAM/CPU and prints the best `[model]` settings for your ma
 
 ## Configuration — `config.toml`
 
-- **Engine**: `[model].engine = "local"` (default — fully on-device, private) or `"gemini"` — bring-your-own-key cloud transcription for machines that can't run a local model. Set your key via the `GEMINI_API_KEY` env var (or `[model].api_key`). Default cloud model `gemini-2.5-flash`; use `gemini-2.5-pro` for higher accuracy. **Privacy note:** the cloud engine sends dictation audio to Google — the app logs a clear notice when it's active. (TTS-named models like `gemini-2.5-pro-preview-tts` are text-to-speech and are rejected — they can't transcribe.)
+- **Engine**: `[model].engine = "local"` (default — fully on-device, private) or `"gemini"` — bring-your-own-key cloud transcription for machines that can't run a local model. Set your key in a `.env` file next to app.py (`GEMINI_API_KEY=...`, gitignored), via the `GEMINI_API_KEY` env var, or `[model].api_key`. Default cloud model `gemini-2.5-flash`; use `gemini-2.5-pro` for higher accuracy. **Privacy note:** the cloud engine sends dictation audio to Google — the app logs a clear notice when it's active. (TTS-named models like `gemini-2.5-pro-preview-tts` are text-to-speech and are rejected — they can't transcribe.)
 - **Model swap**: set `[model].name` to `large-v3-turbo` (default), `large-v3` (best Hindi accuracy, slower), `medium`, `small`, or any raw HF CTranslate2 repo id.
 - **Hinglish**: if auto-detect keeps choosing the wrong language, set `[model].language = "hi"`.
 - **Cleanup tiers**: `off` = verbatim; `rules` = deterministic filler/punctuation cleanup (default); `llm` = local Ollama model (optional — install [Ollama](https://ollama.com) and `ollama pull qwen2.5:3b-instruct`). If Ollama is down, dictation silently degrades to `rules` — it never blocks.

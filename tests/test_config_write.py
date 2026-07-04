@@ -87,3 +87,38 @@ def test_save_rejects_invalid_config(tmp_path):
 def test_real_shipped_config_roundtrips(tmp_path):
     cfg = load_config()  # the repo's actual config.toml
     assert_config_equal(roundtrip(cfg, tmp_path), cfg)
+
+
+# ---- .env loading ----
+
+
+def test_load_dotenv_sets_vars_without_overriding(tmp_path, monkeypatch):
+    from whisperflow.config import load_dotenv
+
+    monkeypatch.delenv("WF_TEST_KEY", raising=False)
+    monkeypatch.setenv("WF_TEST_EXISTING", "keep-me")
+    env = tmp_path / ".env"
+    env.write_text(
+        "# comment line\n"
+        "\n"
+        'WF_TEST_KEY="secret-123"\n'
+        "WF_TEST_EXISTING=overwritten\n"
+        "malformed line without equals\n"
+        "WF_TEST_SPACES =  spaced value  \n",
+        encoding="utf-8",
+    )
+    import os
+
+    count = load_dotenv(env)
+    assert count == 2  # KEY + SPACES; EXISTING skipped, comment/blank/malformed ignored
+    assert os.environ["WF_TEST_KEY"] == "secret-123"  # quotes stripped
+    assert os.environ["WF_TEST_EXISTING"] == "keep-me"  # existing env wins
+    assert os.environ["WF_TEST_SPACES"] == "spaced value"
+    monkeypatch.delenv("WF_TEST_KEY", raising=False)
+    monkeypatch.delenv("WF_TEST_SPACES", raising=False)
+
+
+def test_load_dotenv_missing_file_is_fine(tmp_path):
+    from whisperflow.config import load_dotenv
+
+    assert load_dotenv(tmp_path / "no-such.env") == 0
