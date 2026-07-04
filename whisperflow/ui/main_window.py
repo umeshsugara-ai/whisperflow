@@ -312,11 +312,18 @@ class DictionaryPage(tk.Frame):
         )
         vocab_frame = tk.Frame(body, bg=BG)
         vocab_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
+        vocab_wrap = tk.Frame(vocab_frame, bg=BG)
+        vocab_wrap.pack(fill="both", expand=True)
         self.vocab_list = tk.Listbox(
-            vocab_frame, bg=FIELD, fg=FG, relief="flat", font=("Segoe UI", 9),
+            vocab_wrap, bg=FIELD, fg=FG, relief="flat", font=("Segoe UI", 9),
             selectbackground=BTN, selectforeground=FG, highlightthickness=0,
         )
-        self.vocab_list.pack(fill="both", expand=True)
+        vocab_sb = ttk.Scrollbar(
+            vocab_wrap, orient="vertical", command=self.vocab_list.yview, style="WF.Vertical.TScrollbar"
+        )
+        self.vocab_list.configure(yscrollcommand=vocab_sb.set)
+        self.vocab_list.pack(side="left", fill="both", expand=True)
+        vocab_sb.pack(side="right", fill="y")
         vrow = tk.Frame(vocab_frame, bg=BG)
         vrow.pack(fill="x", pady=(6, 0))
         self.vocab_entry = tk.Entry(vrow, bg=FIELD, fg=FG, insertbackground=FG, relief="flat", font=("Segoe UI", 9))
@@ -331,12 +338,19 @@ class DictionaryPage(tk.Frame):
         )
         rep_frame = tk.Frame(body, bg=BG)
         rep_frame.grid(row=1, column=1, sticky="nsew")
+        rep_wrap = tk.Frame(rep_frame, bg=BG)
+        rep_wrap.pack(fill="both", expand=True)
         self.rep_tree = ttk.Treeview(
-            rep_frame, columns=("from", "to"), show="headings", style="WF.Treeview", height=8
+            rep_wrap, columns=("from", "to"), show="headings", style="WF.Treeview", height=8
         )
         self.rep_tree.heading("from", text="When I say")
         self.rep_tree.heading("to", text="Write instead")
-        self.rep_tree.pack(fill="both", expand=True)
+        rep_sb = ttk.Scrollbar(
+            rep_wrap, orient="vertical", command=self.rep_tree.yview, style="WF.Vertical.TScrollbar"
+        )
+        self.rep_tree.configure(yscrollcommand=rep_sb.set)
+        self.rep_tree.pack(side="left", fill="both", expand=True)
+        rep_sb.pack(side="right", fill="y")
         self.rep_tree.bind("<Double-1>", lambda e: self._load_selected_rep())
         rrow = tk.Frame(rep_frame, bg=BG)
         rrow.pack(fill="x", pady=(6, 0))

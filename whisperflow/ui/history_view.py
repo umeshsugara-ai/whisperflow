@@ -45,6 +45,10 @@ class HistoryPane(tk.Frame):
             "WF.Treeview", background=BG, foreground=FG, fieldbackground=BG, rowheight=24, borderwidth=0
         )
         style.map("WF.Treeview", background=[("selected", BTN)])
+        style.configure(
+            "WF.Vertical.TScrollbar",
+            background=BTN, troughcolor=BG, bordercolor=BG, arrowcolor=FG, relief="flat",
+        )
 
         # search row
         top = tk.Frame(self, bg=BG)
@@ -58,14 +62,21 @@ class HistoryPane(tk.Frame):
         ).pack(side="left", fill="x", expand=True, padx=(8, 0), ipady=3)
 
         columns = ("time", "tier", "text")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", style="WF.Treeview", height=8)
+        tree_wrap = tk.Frame(self, bg=BG)
+        tree_wrap.pack(fill="both", expand=False, padx=8, pady=(4, 4))
+        self.tree = ttk.Treeview(tree_wrap, columns=columns, show="headings", style="WF.Treeview", height=8)
         self.tree.heading("time", text="Time")
         self.tree.heading("tier", text="Cleanup")
         self.tree.heading("text", text="Injected text")
         self.tree.column("time", width=130, stretch=False)
         self.tree.column("tier", width=70, stretch=False)
         self.tree.column("text", width=420)
-        self.tree.pack(fill="both", expand=False, padx=8, pady=(4, 4))
+        tree_sb = ttk.Scrollbar(
+            tree_wrap, orient="vertical", command=self.tree.yview, style="WF.Vertical.TScrollbar"
+        )
+        self.tree.configure(yscrollcommand=tree_sb.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        tree_sb.pack(side="right", fill="y")
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
         # detail panes
@@ -78,8 +89,15 @@ class HistoryPane(tk.Frame):
             detail.columnconfigure(col, weight=1)
             detail.rowconfigure(0, weight=1)
             tk.Label(frame, text=label, bg=BG, fg=FG_DIM, font=("Segoe UI", 8)).pack(anchor="w")
-            box = tk.Text(frame, height=6, bg=FIELD, fg=FG, wrap="word", font=("Segoe UI", 9), relief="flat")
-            box.pack(fill="both", expand=True)
+            box_wrap = tk.Frame(frame, bg=BG)
+            box_wrap.pack(fill="both", expand=True)
+            box = tk.Text(box_wrap, height=6, bg=FIELD, fg=FG, wrap="word", font=("Segoe UI", 9), relief="flat")
+            box_sb = ttk.Scrollbar(
+                box_wrap, orient="vertical", command=box.yview, style="WF.Vertical.TScrollbar"
+            )
+            box.configure(yscrollcommand=box_sb.set)
+            box.pack(side="left", fill="both", expand=True)
+            box_sb.pack(side="right", fill="y")
             setattr(self, attr, box)
 
         # buttons
