@@ -171,15 +171,24 @@ def run_headless(cfg, ctl, listener) -> int:
     return 0
 
 
-def run_with_ui(cfg, ctl, listener, history) -> int:
+def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False) -> int:
+    import threading
     import tkinter as tk
 
+    from whisperflow import sysinfo
     from whisperflow.processing import build_processor
     from whisperflow.ui.overlay import Overlay
     from whisperflow.ui.tray import Tray
 
     root = tk.Tk()
     root.withdraw()  # the root stays hidden — MainWindow/overlay are Toplevels
+
+    def _log_tk_exception(exc_type, exc_value, exc_tb) -> None:
+        # default handler prints to the (hidden) console — invisible when
+        # launched via run.vbs; route UI callback crashes into the log instead
+        log.error("UI callback failed", exc_info=(exc_type, exc_value, exc_tb))
+
+    root.report_callback_exception = _log_tk_exception
     from whisperflow.hotkey import HotkeyEvent, format_hotkey_label
 
     overlay = Overlay(root)
@@ -248,6 +257,7 @@ def run_with_ui(cfg, ctl, listener, history) -> int:
     def on_open_main(tab: str = "home") -> None:
         from whisperflow.ui.main_window import MainWindow
 
+        log.info("opening main window (tab=%s)", tab)
         root.after(
             0,
             lambda: MainWindow.open(
@@ -258,13 +268,29 @@ def run_with_ui(cfg, ctl, listener, history) -> int:
             ),
         )
 
+    def _watch_show_requests() -> None:
+        """A second `python app.py` launch signals this event — show the window."""
+        handle = sysinfo.create_show_event()
+        if not handle:
+            return
+        while True:
+            if sysinfo.wait_show_event(handle, 2000):
+                on_open_main("home")
+
+    overlay.on_open_main = lambda: on_open_main("home")  # right-click the pill
+
     tray = Tray(cfg, history, on_reload_config, on_quit, on_tier_change, on_open_main)
     ctl.on_state = on_state
     ctl.start()
     listener.start()
     tray.run_detached()
+    threading.Thread(target=_watch_show_requests, daemon=True, name="wf-show-event").start()
     if cfg.overlay.always_visible:
         root.after(0, lambda: overlay.show_idle(hint=cfg.overlay.show_hint))
+    if not autostarted:
+        # a deliberate launch means the user wants to see the product screen;
+        # the quiet path is logon autostart (pill only)
+        on_open_main("home")
 
     log.info("ready — hotkey %s (tap=toggle, hold=push-to-talk, Esc=cancel)", cfg.hotkey.combo)
     try:
@@ -339,6 +365,12 @@ def main() -> int:
         log.info("started via Windows logon autostart")
 
     if not acquire_single_instance():
+        from whisperflow import sysinfo
+
+        if sysinfo.signal_show_event():
+            log.info("already running — asked the running instance to show its window")
+            print("WhisperFlow is already running — opening its window.")
+            return 0
         log.error("WhisperFlow is already running — exiting.")
         print("WhisperFlow is already running.")
         return 2
@@ -369,7 +401,7 @@ def main() -> int:
 
     if args.headless:
         return run_headless(cfg, ctl, listener)
-    return run_with_ui(cfg, ctl, listener, history)
+    return run_with_ui(cfg, ctl, listener, history, autostarted=args.autostart)
 
 
 if __name__ == "__main__":

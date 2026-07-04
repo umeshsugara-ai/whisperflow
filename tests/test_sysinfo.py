@@ -131,6 +131,22 @@ def test_ensure_autostart_heals_stale_entry(monkeypatch, tmp_path):
         sysinfo.disable_autostart()
 
 
+def test_show_event_roundtrip(monkeypatch):
+    import ctypes
+
+    # throwaway event name so a running WhisperFlow instance is untouched
+    monkeypatch.setattr(sysinfo, "_SHOW_EVENT", "Global\\WhisperFlowPytestShowEvent")
+    assert sysinfo.signal_show_event() is False  # no instance listening
+    handle = sysinfo.create_show_event()
+    assert handle
+    try:
+        assert sysinfo.signal_show_event() is True
+        assert sysinfo.wait_show_event(handle, 0) is True
+        assert sysinfo.wait_show_event(handle, 0) is False  # auto-reset consumed it
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
 def test_ensure_autostart_respects_opt_out(monkeypatch, tmp_path):
     monkeypatch.setattr(sysinfo, "_RUN_VALUE", "WhisperFlowPytest")
     sentinel = tmp_path / ".autostart_initialized"

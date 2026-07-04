@@ -119,6 +119,36 @@ def disable_autostart() -> None:
         pass
 
 
+# ---- single-instance activation ---------------------------------------------
+# A second `python app.py` launch can't start (named mutex) — instead it signals
+# this named event and the running instance shows its main window. Standard
+# "clicking the app again opens its window" behavior.
+_SHOW_EVENT = "Global\\WhisperFlowShowMainWindow"
+_WAIT_OBJECT_0 = 0
+_EVENT_MODIFY_STATE = 0x0002
+
+
+def create_show_event() -> int:
+    """Create the named auto-reset event the running instance waits on."""
+    return ctypes.windll.kernel32.CreateEventW(None, False, False, _SHOW_EVENT)
+
+
+def signal_show_event() -> bool:
+    """Ask the running instance to show its main window. False if none is running."""
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.OpenEventW(_EVENT_MODIFY_STATE, False, _SHOW_EVENT)
+    if not handle:
+        return False
+    try:
+        return bool(kernel32.SetEvent(handle))
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def wait_show_event(handle: int, timeout_ms: int) -> bool:
+    return ctypes.windll.kernel32.WaitForSingleObject(handle, timeout_ms) == _WAIT_OBJECT_0
+
+
 @dataclass
 class SystemSpecs:
     gpu_name: str | None

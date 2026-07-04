@@ -115,6 +115,7 @@ class Overlay:
         self.on_cancel: Callable[[], None] = lambda: None
         self.on_confirm: Callable[[], None] = lambda: None
         self.on_start: Callable[[], None] = lambda: None
+        self.on_open_main: Callable[[], None] = lambda: None  # right-click → app window
         self.persistent: bool = True  # when False, show_idle() hides instead
         self.hotkey_label: str = "Ctrl+Win"  # set by app.py from cfg.hotkey.combo
         self._hovering: bool = False
@@ -126,6 +127,7 @@ class Overlay:
         self.canvas.bind("<Button-1>", self._mouse_down)
         self.canvas.bind("<B1-Motion>", self._mouse_move)
         self.canvas.bind("<ButtonRelease-1>", self._mouse_up)
+        self.canvas.bind("<Button-3>", lambda e: self.on_open_main())
         # hover-to-reveal the hotkey while resting (Wispr-style)
         self.canvas.bind("<Enter>", self._on_hover_enter)
         self.canvas.bind("<Leave>", self._on_hover_leave)

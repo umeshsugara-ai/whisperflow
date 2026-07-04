@@ -62,13 +62,15 @@ Claude Code will run the commands, edit `config.toml`, launch the app, and verif
 | Hold-to-talk | Hold **Ctrl+Win**, speak, release → text is injected |
 | Toggle mode | Tap **Ctrl+Win** (<350ms), speak freely, tap again to finish |
 | Cancel a recording | **Esc** |
-| Open the app window | **Double-click the tray icon** — Home (stats + recent), History, Dictionary, Settings |
+| Open the app window | **Right-click the pill**, double-click the tray icon, or just run `python app.py` again |
 | Get the raw (uncleaned) transcript | Tray → "Copy last RAW transcript", or the History screen |
 | Switch cleanup level live | Settings screen, or Tray → Cleanup tier (persists now) |
 
 ### The app window
 
-Double-click the tray icon (or tray → "Open WhisperFlow") for the main window:
+Right-click the bottom pill, double-click the tray icon (or tray → "Open WhisperFlow"),
+or launch the app a second time — all open the main window. A manual (non-autostart)
+launch opens it automatically:
 
 - **Home** — lifetime stats (total words, average WPM, day streak, dictations), a plain-language status strip ("All good ✓" or recent warnings), and your latest dictations with one-click copy.
 - **History** — searchable list of every dictation with the RAW and cleaned text side by side.
