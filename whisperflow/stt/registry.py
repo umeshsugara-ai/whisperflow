@@ -36,8 +36,38 @@ _ENGINE_BY_KIND = {
 }
 
 
+def _try_import_faster_whisper() -> None:
+    """Indirection so tests can simulate 'not importable' without actually
+    uninstalling the package. Raises ImportError exactly like a real
+    failed import would."""
+    import faster_whisper  # noqa: F401
+
+
+def _ensure_local_available() -> None:
+    """No-op on a dev checkout or WF_BUILD=full frozen build, where
+    faster_whisper is already importable. Falls back to the on-demand
+    local-inference pack only when it isn't (a WF_BUILD=cloud build)."""
+    try:
+        _try_import_faster_whisper()
+        return
+    except ImportError:
+        pass
+
+    from whisperflow import localpack
+
+    if not localpack.is_installed():
+        raise RuntimeError(
+            "Local (on-device) mode needs a one-time download (~800MB) that hasn't "
+            "happened yet — open Settings and pick Local again, or switch to a free "
+            "cloud engine like Groq in the meantime."
+        )
+    localpack.activate()
+
+
 def create_engine(cfg: ModelConfig) -> SttEngine:
     provider = providers.get(cfg.engine)
+    if provider.kind == "local":
+        _ensure_local_available()
     module_path, class_name = _ENGINE_BY_KIND[provider.kind].rsplit(".", 1)
     import importlib
 

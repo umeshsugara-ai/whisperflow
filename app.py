@@ -118,6 +118,24 @@ def _model_needs_download(model_cfg) -> bool:
     return not (cache / ("models--" + repo.replace("/", "--"))).exists()
 
 
+def _local_pack_needs_download(model_cfg) -> bool:
+    """True when engine="local" but faster_whisper isn't importable AND the
+    on-demand pack hasn't been downloaded yet (WF_BUILD=cloud installs only
+    — a no-op check on a dev checkout or a WF_BUILD=full build)."""
+    if model_cfg.engine != "local":
+        return False
+    from whisperflow.stt import registry
+
+    try:
+        registry._try_import_faster_whisper()
+        return False
+    except ImportError:
+        pass
+    from whisperflow import localpack
+
+    return not localpack.is_installed()
+
+
 def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
     if _model_needs_download(cfg.model):
         # WARNING so it also lands on the main window's Home status strip
@@ -125,6 +143,12 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
             "Downloading the speech model %r (~1.5GB) — first run only, "
             "please keep the app open; dictation starts when it finishes.",
             cfg.model.name,
+        )
+    if _local_pack_needs_download(cfg.model):
+        log.warning(
+            "Local (on-device) mode needs a one-time download (~800MB) that hasn't "
+            "happened yet — WhisperFlow may fail to start. Open Settings and switch to "
+            "a cloud engine like Groq, or reinstall with the full offline package."
         )
     engine = create_engine(cfg.model)
     engine.load()
@@ -487,7 +511,21 @@ def main() -> int:
     if warning:
         log.warning(warning)
 
-    ctl, listener, history = build_controller(cfg)
+    try:
+        ctl, listener, history = build_controller(cfg)
+    except RuntimeError as exc:
+        log.error("startup failed: %s", exc)
+        if args.headless:
+            raise
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = first_run_root if first_run_root is not None else tk.Tk()
+        if first_run_root is None:
+            root.withdraw()
+        messagebox.showerror("WhisperFlow — startup failed", str(exc), parent=root)
+        root.destroy()
+        return 1
 
     if args.headless:
         return run_headless(cfg, ctl, listener)
