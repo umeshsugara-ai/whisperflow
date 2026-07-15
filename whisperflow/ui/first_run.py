@@ -153,10 +153,43 @@ def show_first_run_chooser(root, specs, rec, path):
         cfg.path = path
         _finish(cfg)
 
-    def _finish(cfg) -> None:
-        from whisperflow.config import save_config
+    def _show_error(message: str) -> None:
+        for child in list_frame.winfo_children():
+            child.destroy()
+        tk.Label(
+            list_frame, text="Couldn't save your configuration", bg=BG, fg=FG,
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w", pady=(4, 6))
+        tk.Label(
+            list_frame, text=message, bg=BG, fg=FG_DIM, font=("Segoe UI", 9),
+            wraplength=480, justify="left", anchor="w",
+        ).pack(anchor="w")
+        tk.Label(
+            list_frame, text="Close this window to fall back to Local (on-device).",
+            bg=BG, fg=FG_DIM, font=("Segoe UI", 9, "italic"), wraplength=480, justify="left",
+        ).pack(anchor="w", pady=(8, 0))
 
-        save_config(cfg, path)
+    def _finish(cfg) -> None:
+        from whisperflow.config import ConfigError, save_config
+
+        try:
+            save_config(cfg, path)
+        except (ConfigError, OSError) as exc:
+            # Never let this propagate out of a Tk button callback — that
+            # unwinds silently (Tk swallows it) and leaves wait_window()
+            # blocked forever with the window still up. Recover instead:
+            # a keyless-cloud-provider validation failure (e.g. the
+            # recommendation picked a provider whose key the user doesn't
+            # actually have) falls through to the same key-entry step
+            # already used for a manually-picked keyless provider. Anything
+            # else (engine="local", or a real disk-I/O failure) shows an
+            # error and leaves the window open — WM_DELETE_WINDOW already
+            # falls back to local.
+            if cfg.model.engine != "local":
+                _show_key_step(get(cfg.model.engine))
+            else:
+                _show_error(str(exc))
+            return
         result["cfg"] = cfg
         win.grab_release()
         win.destroy()

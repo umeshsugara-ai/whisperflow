@@ -218,6 +218,22 @@ def _probe_ram_gb() -> float:
     return stat.ullTotalPhys / (1024**3)
 
 
+def _detect_cloud_provider() -> str:
+    """Which cloud provider's API key the user actually has set in the
+    environment (checked in provider-registry order), so recommend() can
+    suggest a provider the user can use right now without any extra signup
+    step. Falls back to "groq" — the best free "sign up now" default — when
+    nobody has any cloud key set yet. Mirrors app.py's
+    _any_cloud_api_key_available() (which only answers "does ANY key
+    exist"); this answers "WHICH one"."""
+    from whisperflow.stt import providers
+
+    for p in providers.cloud_providers():
+        if p.api_key_env and os.environ.get(p.api_key_env):
+            return p.id
+    return "groq"
+
+
 def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
     """Best model for THIS machine. Ladder:
 
@@ -283,14 +299,18 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
         )
 
     if has_api_key:
+        from whisperflow.stt import providers
+
+        engine = _detect_cloud_provider()
+        provider = providers.get(engine)
         return Recommendation(
-            engine="groq",
-            name="whisper-large-v3-turbo",
+            engine=engine,
+            name=provider.default_model,
             device="cpu",
             compute_type="int8",
             reason=f"this machine ({specs.cpu_cores} cores, {specs.ram_gb:.0f}GB RAM, no NVIDIA GPU) "
-            "is too weak for a good local model — free cloud (Groq) is the honest recommendation "
-            "(note: audio leaves the machine)",
+            f"is too weak for a good local model — free cloud ({provider.display_name}) is the honest "
+            "recommendation (note: audio leaves the machine)",
             alternatives=["small on cpu (fully private but slow and less accurate)"],
         )
 
