@@ -226,7 +226,7 @@ after C.
 ## Risks summary
 
 - Native-pack runtime load (Phase C) — mitigated by test-gate + two-variant fallback.
-- Provider free-tier terms change — registry `free_note` is easy to update; no logic
+- Provider free-tier terms change — registry `cost_note` is easy to update; no logic
   depends on exact numbers.
 - Multipart-in-urllib correctness — covered by a body-builder unit test + live smoke.
 - Key leakage — `set_env_var` and all engines must never log key values (assert in tests).
