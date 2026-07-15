@@ -51,7 +51,10 @@ VALID_DEVICES = {"cuda", "cpu"}
 VALID_COMPUTE_TYPES = {"int8_float16", "float16", "int8", "float32"}
 VALID_CLEANUP_TIERS = {"off", "rules", "llm", "gemini"}
 VALID_INJECT_METHODS = {"auto", "type", "paste"}
-VALID_ENGINES = {"local", "gemini"}
+def _valid_engines() -> set[str]:
+    from whisperflow.stt import providers
+
+    return set(providers.PROVIDERS.keys())
 
 
 @dataclass
@@ -183,9 +186,12 @@ def load_dotenv(path: Path | None = None) -> int:
 
 def _validate(cfg: Config) -> None:
     m = cfg.model
-    if m.engine not in VALID_ENGINES:
-        raise ConfigError(f"[model].engine must be one of {sorted(VALID_ENGINES)}, got {m.engine!r}")
-    if m.engine != "local" and not m.resolve_api_key():
+    from whisperflow.stt import providers as _providers
+
+    valid_engines = _valid_engines()
+    if m.engine not in valid_engines:
+        raise ConfigError(f"[model].engine must be one of {sorted(valid_engines)}, got {m.engine!r}")
+    if _providers.is_cloud(m.engine) and not m.resolve_api_key():
         raise ConfigError(
             f"[model].engine = {m.engine!r} needs an API key: set [model].api_key "
             f"or the {m.api_key_env} environment variable"
@@ -235,9 +241,25 @@ def load_config(path: Path | str | None = None) -> Config:
     return cfg
 
 
+def _build_model_config(section) -> ModelConfig:
+    model_kwargs = {k: v for k, v in section("model").items() if k in ModelConfig.__dataclass_fields__}
+    if "api_key_env" not in model_kwargs:
+        # api_key_env's dataclass default only matches the "gemini" provider; for any
+        # other engine, default it from the provider registry so `resolve_api_key()`
+        # looks at the right env var (e.g. GROQ_API_KEY for engine = "groq").
+        from whisperflow.stt import providers as _providers
+
+        engine = model_kwargs.get("engine", ModelConfig.engine)
+        try:
+            model_kwargs["api_key_env"] = _providers.get(engine).api_key_env
+        except KeyError:
+            pass  # unknown engine — leave default, _validate() will reject it below
+    return ModelConfig(**model_kwargs)
+
+
 def _build_config(section, replacements, d, cfg_path) -> Config:
     return Config(
-        model=ModelConfig(**{k: v for k, v in section("model").items() if k in ModelConfig.__dataclass_fields__}),
+        model=_build_model_config(section),
         hotkey=HotkeyConfig(**{k: v for k, v in section("hotkey").items() if k in HotkeyConfig.__dataclass_fields__}),
         audio=AudioConfig(**{k: v for k, v in section("audio").items() if k in AudioConfig.__dataclass_fields__}),
         cleanup=CleanupConfig(
