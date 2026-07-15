@@ -161,3 +161,43 @@ def test_ensure_autostart_respects_opt_out(monkeypatch, tmp_path):
     sentinel.write_text("1", encoding="utf-8")  # user disabled via tray after first run
     sysinfo.ensure_autostart(sentinel)
     assert sysinfo.get_autostart_command() is None  # must NOT re-register
+
+
+# ---- pure config builders ----
+
+
+def test_build_recommended_config_local():
+    rec = Recommendation(
+        engine="local", name="large-v3-turbo", device="cuda", compute_type="int8_float16",
+        reason="test", alternatives=[],
+    )
+    cfg = sysinfo.build_recommended_config(rec)
+    assert cfg.model.engine == "local"
+    assert cfg.model.name == "large-v3-turbo"
+    assert cfg.model.device == "cuda"
+    assert cfg.model.compute_type == "int8_float16"
+
+
+def test_build_recommended_config_cloud_sets_api_key_env_from_registry():
+    rec = Recommendation(
+        engine="groq", name="whisper-large-v3-turbo", device="cpu", compute_type="int8",
+        reason="test", alternatives=[],
+    )
+    cfg = sysinfo.build_recommended_config(rec)
+    assert cfg.model.engine == "groq"
+    assert cfg.model.cloud_model == "whisper-large-v3-turbo"
+    assert cfg.model.api_key_env == "GROQ_API_KEY"
+
+
+def test_build_config_for_engine_local_reuses_recommend_ladder():
+    cfg = sysinfo.build_config_for_engine("local", specs(vram_mb=8192, gpu="RTX 4060"))
+    assert cfg.model.engine == "local"
+    assert cfg.model.name == "large-v3-turbo"  # matches the big-GPU ladder branch
+    assert cfg.model.device == "cuda"
+
+
+def test_build_config_for_engine_cloud_uses_provider_default():
+    cfg = sysinfo.build_config_for_engine("openai", specs(vram_mb=0, ram_gb=4, cores=2))
+    assert cfg.model.engine == "openai"
+    assert cfg.model.cloud_model == "gpt-4o-transcribe"
+    assert cfg.model.api_key_env == "OPENAI_API_KEY"

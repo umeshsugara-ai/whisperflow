@@ -351,24 +351,17 @@ def _any_cloud_api_key_available() -> bool:
 
 
 def bootstrap_config(path: Path):
-    """First run with no config.toml (installed build): probe the hardware,
-    generate a config from the recommendation, and save it — the installed
-    user never runs `--recommend` or edits TOML by hand."""
+    """First run with no config.toml (installed build, or --headless):
+    probe the hardware, generate a config from the recommendation, and save
+    it — used only when there's no interactive first-run chooser (headless
+    mode) or as the chooser's own "Use recommended" action."""
     from whisperflow import sysinfo
-    from whisperflow.config import Config, save_config
-    from whisperflow.stt import providers
+    from whisperflow.config import save_config
 
     specs = sysinfo.probe()
     rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available())
-    cfg = Config(path=path)
-    cfg.model.engine = rec.engine
-    if rec.engine == "local":
-        cfg.model.name = rec.name
-        cfg.model.device = rec.device
-        cfg.model.compute_type = rec.compute_type
-    else:
-        cfg.model.cloud_model = rec.name
-        cfg.model.api_key_env = providers.get(rec.engine).api_key_env
+    cfg = sysinfo.build_recommended_config(rec)
+    cfg.path = path
     save_config(cfg, path)
     log.info(
         "first run — generated %s for %s (%s)",

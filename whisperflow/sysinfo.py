@@ -305,6 +305,49 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
     )
 
 
+def build_recommended_config(rec: Recommendation):
+    """Pure: build a Config from a Recommendation, no file I/O. Used by both
+    the unattended `--headless` first-run path (app.py bootstrap_config) and
+    the interactive first-run chooser's "Use recommended" button."""
+    from whisperflow.config import Config
+    from whisperflow.stt import providers
+
+    cfg = Config()
+    cfg.model.engine = rec.engine
+    if rec.engine == "local":
+        cfg.model.name = rec.name
+        cfg.model.device = rec.device
+        cfg.model.compute_type = rec.compute_type
+    else:
+        cfg.model.cloud_model = rec.name
+        cfg.model.api_key_env = providers.get(rec.engine).api_key_env
+    return cfg
+
+
+def build_config_for_engine(engine_id: str, specs: SystemSpecs):
+    """Pure: build a Config for a user's MANUAL provider pick (first-run
+    chooser or Settings), as opposed to the system's auto-recommendation.
+
+    For "local" this reuses recommend()'s hardware-tiered sizing rather than
+    duplicating the VRAM ladder: recommend(specs, has_api_key=False) always
+    returns engine="local" (the only non-local branch requires
+    has_api_key=True), so its name/device/compute_type are exactly the
+    right local sizing for this machine regardless of why the caller wants
+    local.
+    """
+    if engine_id == "local":
+        return build_recommended_config(recommend(specs, has_api_key=False))
+    from whisperflow.config import Config
+    from whisperflow.stt import providers
+
+    provider = providers.get(engine_id)
+    cfg = Config()
+    cfg.model.engine = engine_id
+    cfg.model.cloud_model = provider.default_model
+    cfg.model.api_key_env = provider.api_key_env
+    return cfg
+
+
 def startup_check(cfg_model, specs: SystemSpecs) -> str | None:
     """One-line warning when config mismatches hardware, else None."""
     if cfg_model.engine == "local" and cfg_model.device == "cuda" and specs.vram_mb == 0:
