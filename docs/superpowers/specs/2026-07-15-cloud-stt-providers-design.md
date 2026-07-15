@@ -41,11 +41,15 @@ base_url: str           # for openai_compatible
 default_model: str      # e.g. "whisper-large-v3-turbo"
 api_key_env: str        # e.g. "GROQ_API_KEY"
 signup_url: str         # where to generate a key
-free_note: str          # "2000 requests/day free"
 cost_tier: str          # free | freemium | paid
+cost_note: str          # "Free — 2000/day" | "~$0.006/min"
 quality_tier: str       # good | better | best
+speed_note: str         # "Instant" | "Fast" | "Depends on your GPU"
 setup_steps: list[str]  # step-by-step key-generation guide
 ```
+
+Privacy is derived, not stored: `kind == "local"` → 🔒 Offline/Private, else ☁ Cloud.
+These fields feed the plain-language **badges** in the picker (Phase B).
 
 `create_engine(cfg.model)` (registry.py) dispatches on the provider's `kind`:
 
@@ -104,28 +108,56 @@ Tests: multipart body builder; registry lookups; `create_engine` dispatch per ki
 (Live API calls are NOT in the unit suite — a manual `scripts/test_cloud_stt.py`
 smoke script hits each provider with a real key.)
 
-## Phase B — onboarding / step-by-step key guide
+## Phase B — onboarding + decision-support ("which do I pick?")
 
-- **edit** `whisperflow/ui/main_window.py` SettingsPage — new **"Speech engine"**
-  section: a provider dropdown (each row: display name + free/paid badge + quality
-  note), and when a cloud provider is selected: its `free_note`, a **"Get a free key →"**
-  button that opens `signup_url` in the browser, the numbered `setup_steps`, and a
-  key entry field that writes `{API_KEY_ENV}=…` to `<data_dir>/.env` (new helper
-  `config.set_env_var(key, value)` — create/update `.env` in place, never echo the
-  key to logs). Switching engine writes `[model].engine` via the existing
-  `save_config`. A "restart to apply" note (engine change isn't hot-reloaded).
-- **edit** `whisperflow/ui/main_window.py` HomePage — first-run: if `recommend()`
-  found no GPU AND no cloud key is set, show a dismissible card:
-  *"No GPU detected — local dictation will be slow. Get a free Groq key (2,000
-  dictations/day) for instant cloud transcription."* → **"Set up now"** opens the
-  Settings Speech-engine section. Dismissal persists (reuse the `.guide_dismissed`
-  pattern, separate marker `.cloud_hint_dismissed`).
-- **edit** `README.md` — a "Choose your speech engine" section: the provider table
-  above + per-provider step-by-step (signup link → create key → paste in Settings or
-  `.env`). Frame local as "private/offline, needs a good GPU".
+The user must almost never *have* to choose — the system picks a smart default and the
+config just works. Choice is surfaced clearly for those who care about privacy/budget/
+quality. Three layers:
 
-Tests: `set_env_var` create/update/idempotent + no-log; provider dropdown builds all
-registry rows; first-run cloud card shows only when GPU-less & keyless & undismissed.
+**Layer 1 — system auto-default + reason (how the SYSTEM decides).**
+`recommend(specs, keys_present)` already probes hardware; it returns the pick plus a
+human `reason`. `bootstrap_config()` writes that default on first run — zero user action.
+The Settings picker pre-selects this provider and shows a **"★ Best for your PC — {reason}"**
+line (e.g. "No GPU detected — Groq is free and instant"). The reason string comes straight
+from `recommend()`, no new logic.
+
+**Layer 2 — plain-language badges (how the USER eyeballs it).**
+- **edit** `whisperflow/ui/main_window.py` SettingsPage — new **"Speech engine"** section.
+  The provider dropdown/list shows, per row, badges built from the registry fields —
+  privacy (🔒 Offline / ☁ Cloud), cost (💚 Free / 💛 Paid + `cost_note`), quality
+  (Good/Better/Best), speed (`speed_note`). Example row: *"Groq — ☁ Cloud · 💚 Free
+  (2000/day) · Better · ⚡ Instant"* vs *"Local — 🔒 Offline · 💚 Free · Best · needs GPU"*.
+  When a cloud provider is selected: a **"Get a free key →"** button opens `signup_url`,
+  the numbered `setup_steps` render inline, and a key field writes `{API_KEY_ENV}=…` to
+  `<data_dir>/.env` (new helper `config.set_env_var(key, value)` — create/update in place,
+  never echo the key to logs). Switching engine writes `[model].engine` via `save_config`;
+  a "restart to apply" note appears (engine isn't hot-reloaded).
+
+**Layer 3 — optional "Help me choose" (2 questions, for the unsure).**
+- A small **"Help me choose"** button opens a 2-question mini-helper: (1) *"Fully
+  private/offline, or is fast cloud OK?"* (2) *"Free, or willing to pay a little for the
+  best accuracy?"*. A pure function `providers.choose(privacy_pref, budget_pref, specs)`
+  maps the answers (+ hardware) to a provider id and highlights it in the list. Offline+any
+  → local (warns if no GPU); cloud+free → groq; cloud+paid → openai/deepgram. Unit-tested,
+  no UI state.
+
+**First-run nudge.**
+- **edit** HomePage — if `recommend()` found no GPU AND no cloud key is set, a dismissible
+  card: *"No GPU detected — local dictation will be slow. Get a free Groq key (2,000
+  dictations/day) for instant cloud transcription."* → **"Set up now"** opens the Settings
+  Speech-engine section. Dismissal persists (`.cloud_hint_dismissed`, same pattern as
+  `.guide_dismissed`).
+
+**Docs.**
+- **edit** `README.md` — "Which speech engine should I pick?" with a plain flowchart
+  (Good NVIDIA GPU + want offline? → Local · else → Groq, free · want best accuracy & OK to
+  pay? → OpenAI/Deepgram) + the provider table + per-provider step-by-step (signup → create
+  key → paste in Settings or `.env`).
+
+Tests: `set_env_var` create/update/idempotent + never-logged; `providers.choose()` maps each
+(privacy, budget, hardware) combo to the expected id; picker builds a badge row per registry
+entry; recommended provider is pre-selected with its reason; first-run cloud card shows only
+when GPU-less & keyless & undismissed.
 
 ## Phase C — slim installer (light base + downloadable local-pack)
 
