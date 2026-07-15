@@ -67,7 +67,7 @@ class ModelConfig:
     vad: bool = True
     language: str = ""  # "" = auto-detect
     # cloud engine (BYOK) settings — only used when engine != "local"
-    cloud_model: str = "gemini-2.5-flash"
+    cloud_model: str = "gemini-2.5-flash-lite"  # ~3x cheaper than -flash, same audio-input support
     api_key: str = ""  # inline key (prefer api_key_env)
     api_key_env: str = "GEMINI_API_KEY"  # env var read when api_key is empty
 

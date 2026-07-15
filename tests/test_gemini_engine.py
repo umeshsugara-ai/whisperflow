@@ -78,7 +78,7 @@ def test_transcribe_parses_response(monkeypatch):
 
     assert result.text == "नमस्ते, hello world"
     assert result.duration_s == 2.0
-    assert "gemini-2.5-flash" in captured["url"]
+    assert "gemini-2.5-flash-lite" in captured["url"]
     assert captured["headers"].get("X-goog-api-key") == "test-key-123"
     prompt_text = captured["body"]["contents"][0]["parts"][0]["text"]
     assert "VERBATIM" in prompt_text
