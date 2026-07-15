@@ -57,3 +57,31 @@ def test_is_cloud():
 def test_all_providers_includes_local_and_every_cloud_id():
     ids = {p.id for p in providers.all_providers()}
     assert ids == {"local", "groq", "gemini", "openai", "deepgram"}
+
+
+class _FakeSpecs:
+    def __init__(self, vram_mb=0):
+        self.vram_mb = vram_mb
+
+
+def test_choose_private_always_returns_local_regardless_of_budget():
+    assert providers.choose("private", "free", _FakeSpecs(vram_mb=8192)) == "local"
+    assert providers.choose("private", "paid_ok", _FakeSpecs(vram_mb=0)) == "local"
+
+
+def test_choose_cloud_free_returns_groq():
+    assert providers.choose("cloud_ok", "free", _FakeSpecs()) == "groq"
+
+
+def test_choose_cloud_paid_returns_openai():
+    assert providers.choose("cloud_ok", "paid_ok", _FakeSpecs()) == "openai"
+
+
+def test_choose_unknown_privacy_pref_raises():
+    with pytest.raises(ValueError, match="privacy_pref"):
+        providers.choose("maybe", "free", _FakeSpecs())
+
+
+def test_choose_unknown_budget_pref_raises():
+    with pytest.raises(ValueError, match="budget_pref"):
+        providers.choose("cloud_ok", "maybe", _FakeSpecs())

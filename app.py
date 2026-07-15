@@ -210,7 +210,7 @@ def run_headless(cfg, ctl, listener) -> int:
     return 0
 
 
-def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False) -> int:
+def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=None) -> int:
     import threading
     import tkinter as tk
 
@@ -219,8 +219,9 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False) -> int:
     from whisperflow.ui.overlay import Overlay
     from whisperflow.ui.tray import Tray
 
-    root = tk.Tk()
-    root.withdraw()  # the root stays hidden — MainWindow/overlay are Toplevels
+    if root is None:
+        root = tk.Tk()
+        root.withdraw()  # the root stays hidden — MainWindow/overlay are Toplevels
 
     def _log_tk_exception(exc_type, exc_value, exc_tb) -> None:
         # default handler prints to the (hidden) console — invisible when
@@ -351,24 +352,17 @@ def _any_cloud_api_key_available() -> bool:
 
 
 def bootstrap_config(path: Path):
-    """First run with no config.toml (installed build): probe the hardware,
-    generate a config from the recommendation, and save it — the installed
-    user never runs `--recommend` or edits TOML by hand."""
+    """First run with no config.toml (installed build, or --headless):
+    probe the hardware, generate a config from the recommendation, and save
+    it — used only when there's no interactive first-run chooser (headless
+    mode) or as the chooser's own "Use recommended" action."""
     from whisperflow import sysinfo
-    from whisperflow.config import Config, save_config
-    from whisperflow.stt import providers
+    from whisperflow.config import save_config
 
     specs = sysinfo.probe()
     rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available())
-    cfg = Config(path=path)
-    cfg.model.engine = rec.engine
-    if rec.engine == "local":
-        cfg.model.name = rec.name
-        cfg.model.device = rec.device
-        cfg.model.compute_type = rec.compute_type
-    else:
-        cfg.model.cloud_model = rec.name
-        cfg.model.api_key_env = providers.get(rec.engine).api_key_env
+    cfg = sysinfo.build_recommended_config(rec)
+    cfg.path = path
     save_config(cfg, path)
     log.info(
         "first run — generated %s for %s (%s)",
@@ -454,8 +448,22 @@ def main() -> int:
         return 2
 
     cfg_path = Path(args.config) if args.config else DEFAULT_CONFIG_PATH
+    first_run_root = None
     if not cfg_path.exists():
-        cfg = bootstrap_config(cfg_path)
+        if args.headless:
+            cfg = bootstrap_config(cfg_path)  # unattended — no display to show a chooser on
+        else:
+            import tkinter as tk
+
+            from whisperflow import sysinfo
+            from whisperflow.ui.first_run import show_first_run_chooser
+
+            first_run_root = tk.Tk()
+            first_run_root.withdraw()
+            specs = sysinfo.probe()
+            rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available())
+            cfg = show_first_run_chooser(first_run_root, specs, rec, cfg_path)
+            log.info("first run — user chose %s via the chooser dialog", cfg.model.engine)
     else:
         cfg = load_config(cfg_path)
     log.info(
@@ -483,7 +491,7 @@ def main() -> int:
 
     if args.headless:
         return run_headless(cfg, ctl, listener)
-    return run_with_ui(cfg, ctl, listener, history, autostarted=args.autostart)
+    return run_with_ui(cfg, ctl, listener, history, autostarted=args.autostart, root=first_run_root)
 
 
 if __name__ == "__main__":

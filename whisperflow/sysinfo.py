@@ -218,6 +218,22 @@ def _probe_ram_gb() -> float:
     return stat.ullTotalPhys / (1024**3)
 
 
+def _detect_cloud_provider() -> str:
+    """Which cloud provider's API key the user actually has set in the
+    environment (checked in provider-registry order), so recommend() can
+    suggest a provider the user can use right now without any extra signup
+    step. Falls back to "groq" — the best free "sign up now" default — when
+    nobody has any cloud key set yet. Mirrors app.py's
+    _any_cloud_api_key_available() (which only answers "does ANY key
+    exist"); this answers "WHICH one"."""
+    from whisperflow.stt import providers
+
+    for p in providers.cloud_providers():
+        if p.api_key_env and os.environ.get(p.api_key_env):
+            return p.id
+    return "groq"
+
+
 def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
     """Best model for THIS machine. Ladder:
 
@@ -283,14 +299,18 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
         )
 
     if has_api_key:
+        from whisperflow.stt import providers
+
+        engine = _detect_cloud_provider()
+        provider = providers.get(engine)
         return Recommendation(
-            engine="groq",
-            name="whisper-large-v3-turbo",
+            engine=engine,
+            name=provider.default_model,
             device="cpu",
             compute_type="int8",
             reason=f"this machine ({specs.cpu_cores} cores, {specs.ram_gb:.0f}GB RAM, no NVIDIA GPU) "
-            "is too weak for a good local model — free cloud (Groq) is the honest recommendation "
-            "(note: audio leaves the machine)",
+            f"is too weak for a good local model — free cloud ({provider.display_name}) is the honest "
+            "recommendation (note: audio leaves the machine)",
             alternatives=["small on cpu (fully private but slow and less accurate)"],
         )
 
@@ -303,6 +323,57 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
         "will run small slowly — consider a free Groq key for instant cloud transcription instead",
         alternatives=["engine='groq' — free, 2000 requests/day, no local download needed"],
     )
+
+
+def _config_and_providers():
+    """Shared lazy import for build_recommended_config/build_config_for_engine
+    — both need Config + the provider registry but import lazily (module
+    scope would risk a circular import with whisperflow.config/stt)."""
+    from whisperflow.config import Config
+    from whisperflow.stt import providers
+
+    return Config, providers
+
+
+def build_recommended_config(rec: Recommendation):
+    """Pure: build a Config from a Recommendation, no file I/O. Used by both
+    the unattended `--headless` first-run path (app.py bootstrap_config) and
+    the interactive first-run chooser's "Use recommended" button."""
+    Config, providers = _config_and_providers()
+
+    cfg = Config()
+    cfg.model.engine = rec.engine
+    if rec.engine == "local":
+        cfg.model.name = rec.name
+        cfg.model.device = rec.device
+        cfg.model.compute_type = rec.compute_type
+    else:
+        cfg.model.cloud_model = rec.name
+        cfg.model.api_key_env = providers.get(rec.engine).api_key_env
+    return cfg
+
+
+def build_config_for_engine(engine_id: str, specs: SystemSpecs):
+    """Pure: build a Config for a user's MANUAL provider pick (first-run
+    chooser or Settings), as opposed to the system's auto-recommendation.
+
+    For "local" this reuses recommend()'s hardware-tiered sizing rather than
+    duplicating the VRAM ladder: recommend(specs, has_api_key=False) always
+    returns engine="local" (the only non-local branch requires
+    has_api_key=True), so its name/device/compute_type are exactly the
+    right local sizing for this machine regardless of why the caller wants
+    local.
+    """
+    if engine_id == "local":
+        return build_recommended_config(recommend(specs, has_api_key=False))
+    Config, providers = _config_and_providers()
+
+    provider = providers.get(engine_id)
+    cfg = Config()
+    cfg.model.engine = engine_id
+    cfg.model.cloud_model = provider.default_model
+    cfg.model.api_key_env = provider.api_key_env
+    return cfg
 
 
 def startup_check(cfg_model, specs: SystemSpecs) -> str | None:

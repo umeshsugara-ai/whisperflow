@@ -32,9 +32,27 @@ def test_no_gpu_decent_cpu_gets_small_cpu():
     assert (rec.engine, rec.name, rec.device, rec.compute_type) == ("local", "small", "cpu", "int8")
 
 
-def test_weak_machine_with_key_gets_cloud():
+def test_weak_machine_with_key_gets_cloud(monkeypatch):
+    # no cloud provider env var set -> defaults to groq (the free "sign up
+    # now" recommendation for a user with no key at all)
+    for env_var in ("GROQ_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "DEEPGRAM_API_KEY"):
+        monkeypatch.delenv(env_var, raising=False)
     rec = recommend(specs(vram_mb=0, ram_gb=4, cores=2), has_api_key=True)
     assert rec.engine == "groq"
+    assert "audio leaves the machine" in rec.reason
+
+
+def test_weak_machine_with_key_picks_the_provider_the_user_actually_has(monkeypatch):
+    # regression: recommend() used to hardcode engine="groq" even when the
+    # user's actual key belongs to a different provider (e.g. Gemini, this
+    # app's flagship documented key) — clicking "Use recommended" would then
+    # fail config validation since GROQ_API_KEY isn't set.
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    rec = recommend(specs(vram_mb=0, ram_gb=4, cores=2), has_api_key=True)
+    assert rec.engine == "gemini"
     assert "audio leaves the machine" in rec.reason
 
 
@@ -161,3 +179,43 @@ def test_ensure_autostart_respects_opt_out(monkeypatch, tmp_path):
     sentinel.write_text("1", encoding="utf-8")  # user disabled via tray after first run
     sysinfo.ensure_autostart(sentinel)
     assert sysinfo.get_autostart_command() is None  # must NOT re-register
+
+
+# ---- pure config builders ----
+
+
+def test_build_recommended_config_local():
+    rec = Recommendation(
+        engine="local", name="large-v3-turbo", device="cuda", compute_type="int8_float16",
+        reason="test", alternatives=[],
+    )
+    cfg = sysinfo.build_recommended_config(rec)
+    assert cfg.model.engine == "local"
+    assert cfg.model.name == "large-v3-turbo"
+    assert cfg.model.device == "cuda"
+    assert cfg.model.compute_type == "int8_float16"
+
+
+def test_build_recommended_config_cloud_sets_api_key_env_from_registry():
+    rec = Recommendation(
+        engine="groq", name="whisper-large-v3-turbo", device="cpu", compute_type="int8",
+        reason="test", alternatives=[],
+    )
+    cfg = sysinfo.build_recommended_config(rec)
+    assert cfg.model.engine == "groq"
+    assert cfg.model.cloud_model == "whisper-large-v3-turbo"
+    assert cfg.model.api_key_env == "GROQ_API_KEY"
+
+
+def test_build_config_for_engine_local_reuses_recommend_ladder():
+    cfg = sysinfo.build_config_for_engine("local", specs(vram_mb=8192, gpu="RTX 4060"))
+    assert cfg.model.engine == "local"
+    assert cfg.model.name == "large-v3-turbo"  # matches the big-GPU ladder branch
+    assert cfg.model.device == "cuda"
+
+
+def test_build_config_for_engine_cloud_uses_provider_default():
+    cfg = sysinfo.build_config_for_engine("openai", specs(vram_mb=0, ram_gb=4, cores=2))
+    assert cfg.model.engine == "openai"
+    assert cfg.model.cloud_model == "gpt-4o-transcribe"
+    assert cfg.model.api_key_env == "OPENAI_API_KEY"
