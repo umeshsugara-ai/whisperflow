@@ -136,6 +136,18 @@ def test_slow_second_tap_stops_like_normal_toggle():
     assert not sm.recording
 
 
+def test_ordinary_toggle_stop_then_quick_restart_is_not_swallowed():
+    sm = make_dt_sm()
+    t = 350.0
+    # ordinary tap-to-start, tap-to-stop -- no double-tap gesture involved
+    assert sm.combo_down(t) == HotkeyEvent.RECORD_START
+    assert sm.combo_up(t + 0.05) is None  # toggle-start
+    assert sm.combo_down(t + 1.0) == HotkeyEvent.RECORD_STOP  # ordinary toggle stop
+    # a quick restart within the double-tap window must still start recording
+    assert sm.combo_down(t + 1.15) == HotkeyEvent.RECORD_START
+    assert sm.recording
+
+
 def test_hold_to_talk_still_works_with_double_tap_enabled():
     sm = make_dt_sm()
     t = 400.0

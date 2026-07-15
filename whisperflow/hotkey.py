@@ -95,6 +95,7 @@ class HotkeyStateMachine:
                 and self._stopped_at >= 0.0
                 and (now - self._stopped_at) * 1000.0 < self.double_tap_ms
             ):
+                log.debug("combo press swallowed: trailing tap of double-tap-stop")
                 self._stopped_at = -1.0
                 return None
             self._phase = _Phase.DOWN_UNDECIDED
@@ -112,9 +113,11 @@ class HotkeyStateMachine:
                 self._dt_locked = True
                 return None
             # second tap ends a toggle recording (handled on key-down so the
-            # stop feels instant; the corresponding key-up is ignored)
+            # stop feels instant; the corresponding key-up is ignored). This
+            # was never double-tap-confirmed, so there's no trailing tap to
+            # guard against -- don't arm _stopped_at, or a quick legitimate
+            # restart right after would be silently swallowed.
             self._phase = _Phase.IDLE
-            self._stopped_at = now
             return HotkeyEvent.RECORD_STOP
         # key-repeat while held: ignore
         return None

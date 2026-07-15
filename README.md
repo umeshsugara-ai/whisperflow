@@ -52,6 +52,11 @@ Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recomme
    ```
    Downloads the model (~1.5GB), **auto-registers autostart**, and opens the app window. A slim pill also appears at the bottom of the screen; hover it to see the hotkey.
 7. **Reboot** → it launches automatically (windowless, pill only). Toggle anytime via Settings or tray → **"Start on Windows login"**, or `python app.py --install-autostart` / `--uninstall-autostart`.
+8. **(Optional) Taskbar shortcut with the WhisperFlow icon:**
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\create_shortcut.ps1
+   ```
+   Creates a Start Menu entry that opens the product window (not a console) — right-click it → **Pin to taskbar**. Pass `-Name "yourName"` to customize the label, e.g. `-File scripts\create_shortcut.ps1 -Name "myWhisperFlow"`.
 
 **If dictation types nothing:** Windows → Sound → **Input** → confirm the mic isn't muted/at 0 and the Test bar moves when you speak (and any Nahimic/Realtek mic effect isn't muting it).
 

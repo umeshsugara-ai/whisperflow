@@ -31,7 +31,10 @@ double_tap_ms = 300        # 0 = off; >0 = double-tap the combo to START dictati
                            # (Wispr-style). A later single tap stops it.
 
 [audio]
-device = "default"         # "default" = system default (re-checked every recording), or a name substring
+device = "Realtek(R) Audio" # pinned: Windows default silently switched to "Microphone (Camo)"
+                           # (virtual, always silent) around 2026-07-07 22:02, so every
+                           # recording since was discarded as silence. "default" = system
+                           # default (re-checked every recording), or a name substring
 max_seconds = 120          # hard recording cap
 min_seconds = 0.3          # discard shorter recordings
 silence_rms = 0.0005       # below this RMS the recording is treated as silence (no transcription)

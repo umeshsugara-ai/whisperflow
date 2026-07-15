@@ -43,6 +43,11 @@ def _window_pid(hwnd: int) -> int:
     return pid.value
 
 
+def is_own_window(hwnd: int) -> bool:
+    """True if `hwnd` belongs to this process (e.g. the pill or main window)."""
+    return bool(hwnd) and _window_pid(hwnd) == os.getpid()
+
+
 def _poll_foreground(hwnd: int, timeout_s: float = 0.3, interval_s: float = 0.02) -> bool:
     """Poll until `hwnd` is foreground or the timeout passes."""
     deadline = time.monotonic() + timeout_s
@@ -95,7 +100,7 @@ def inject_guarded(text: str, cfg: InjectConfig, expected_hwnd: int) -> str:
     if expected_hwnd:
         cur = current_window()
         if cur != expected_hwnd:
-            if _window_pid(cur) == os.getpid():
+            if is_own_window(cur):
                 # our own pill/tray/window grabbed foreground — always recoverable,
                 # SetForegroundWindow is unrestricted while we own the foreground
                 log.debug("own window %r has focus — restoring target", window_title(cur))

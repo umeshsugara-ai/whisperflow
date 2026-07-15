@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -121,10 +122,12 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
 
     from whisperflow.inject import focus
 
-    target = {"hwnd": 0}  # foreground window captured at recording start
+    target = {"hwnd": 0}  # last real (non-own) foreground window seen while recording
 
     def remember_target() -> None:
-        target["hwnd"] = focus.current_window()
+        hwnd = focus.current_window()
+        if not focus.is_own_window(hwnd):
+            target["hwnd"] = hwnd
 
     ctl = Controller(
         recorder=recorder,
@@ -139,6 +142,18 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
         initial_prompt=vocabulary_prompt(cfg.dictionary),
     )
     ctl.remember_target = remember_target  # called by state handlers on RECORDING
+
+    def _track_target_while_recording() -> None:
+        # keep re-capturing the target for as long as recording is active, so
+        # clicking into the real destination window AFTER starting dictation
+        # (e.g. via the pill) still lands the text there, instead of freezing
+        # on whatever was focused the instant recording began.
+        while True:
+            time.sleep(0.25)
+            if ctl.state is State.RECORDING:
+                remember_target()
+
+    threading.Thread(target=_track_target_while_recording, daemon=True, name="wf-target-tracker").start()
 
     listener = HotkeyListener(
         combo=cfg.hotkey.combo,
