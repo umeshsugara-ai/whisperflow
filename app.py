@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import threading
 import time
@@ -340,15 +341,25 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False) -> int:
     return 0
 
 
+def _any_cloud_api_key_available() -> bool:
+    """True when the user has an API key env var set for ANY registered cloud
+    provider (not just Gemini) — used to decide whether cloud STT can be
+    recommended as the default on a weak/GPU-less machine."""
+    from whisperflow.stt import providers
+
+    return any(os.environ.get(p.api_key_env) for p in providers.cloud_providers() if p.api_key_env)
+
+
 def bootstrap_config(path: Path):
     """First run with no config.toml (installed build): probe the hardware,
     generate a config from the recommendation, and save it — the installed
     user never runs `--recommend` or edits TOML by hand."""
     from whisperflow import sysinfo
-    from whisperflow.config import Config, ModelConfig, save_config
+    from whisperflow.config import Config, save_config
+    from whisperflow.stt import providers
 
     specs = sysinfo.probe()
-    rec = sysinfo.recommend(specs, has_api_key=bool(ModelConfig().resolve_api_key()))
+    rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available())
     cfg = Config(path=path)
     cfg.model.engine = rec.engine
     if rec.engine == "local":
@@ -357,6 +368,7 @@ def bootstrap_config(path: Path):
         cfg.model.compute_type = rec.compute_type
     else:
         cfg.model.cloud_model = rec.name
+        cfg.model.api_key_env = providers.get(rec.engine).api_key_env
     save_config(cfg, path)
     log.info(
         "first run — generated %s for %s (%s)",
@@ -369,10 +381,9 @@ def bootstrap_config(path: Path):
 
 def print_recommendation() -> int:
     from whisperflow import sysinfo
-    from whisperflow.config import ModelConfig
 
     specs = sysinfo.probe()
-    has_key = bool(ModelConfig().resolve_api_key())
+    has_key = _any_cloud_api_key_available()
     rec = sysinfo.recommend(specs, has_api_key=has_key)
 
     print("System detected:")

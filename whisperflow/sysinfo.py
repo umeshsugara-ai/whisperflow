@@ -163,7 +163,7 @@ class SystemSpecs:
 
 @dataclass
 class Recommendation:
-    engine: str  # local | gemini
+    engine: str  # local | any registered provider id (see whisperflow.stt.providers)
     name: str  # registry model name (local) or cloud model id
     device: str  # cuda | cpu
     compute_type: str
@@ -225,7 +225,8 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
     - NVIDIA 3-5GB       -> medium cuda int8_float16
     - NVIDIA <3GB        -> small cuda int8_float16
     - No NVIDIA, >=8GB RAM + >=4 cores -> small cpu int8 (usable, slower)
-    - Weak machine       -> BYOK cloud (gemini) if key available, else
+    - Weak machine       -> BYOK cloud (Groq is the primary free-cloud
+                            recommendation) if a key is available, else
                             smallest local with an honest warning
     """
     alts: list[str] = []

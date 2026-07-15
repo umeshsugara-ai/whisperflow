@@ -59,7 +59,8 @@ def _valid_engines() -> set[str]:
 
 @dataclass
 class ModelConfig:
-    engine: str = "local"  # local (faster-whisper, on-device) | gemini (BYOK cloud)
+    engine: str = "local"  # local (faster-whisper, on-device) | any registered provider id
+    # (groq / gemini / openai / deepgram) — see whisperflow.stt.providers for the full list
     name: str = "large-v3-turbo"
     device: str = "cuda"
     compute_type: str = "int8_float16"
@@ -254,6 +255,18 @@ def _build_model_config(section) -> ModelConfig:
             model_kwargs["api_key_env"] = _providers.get(engine).api_key_env
         except KeyError:
             pass  # unknown engine — leave default, _validate() will reject it below
+    if "cloud_model" not in model_kwargs:
+        # cloud_model's dataclass default only matches the "gemini" provider; for any
+        # other engine, default it from the provider registry so cloud engines don't
+        # silently post Gemini's model id to their API (e.g. whisper-large-v3-turbo
+        # for engine = "groq").
+        from whisperflow.stt import providers as _providers
+
+        engine = model_kwargs.get("engine", ModelConfig.engine)
+        try:
+            model_kwargs["cloud_model"] = _providers.get(engine).default_model
+        except KeyError:
+            pass  # unknown engine — leave default, _validate() will reject it below
     return ModelConfig(**model_kwargs)
 
 
@@ -315,7 +328,8 @@ def serialize_config(cfg: Config) -> str:
 
 [model]
 # Not sure what fits your machine? Run:  python app.py --recommend
-engine = {t(m.engine)}           # local (fully on-device, private) | gemini (BYOK cloud — audio goes to Google)
+engine = {t(m.engine)}           # local (fully on-device, private) | any registered cloud provider
+                           # (groq | gemini | openai | deepgram — BYOK, audio leaves the machine)
 
 # --- local engine ---
 # Registry names: large-v3-turbo | large-v3 | medium | small
@@ -328,7 +342,7 @@ vad = {t(m.vad)}
 language = {t(m.language)}      # "" = auto-detect | "en" | "hi" (Devanagari output) |
                            # "hinglish" = Roman-script Hindi+English mix ("kya tum sun rahe ho")
 
-# --- cloud engine (only when engine = "gemini"; bring your own key) ---
+# --- cloud engine (only when engine is a cloud provider; bring your own key) ---
 cloud_model = {t(m.cloud_model)}   # audio-input model; gemini-2.5-pro for higher accuracy
 api_key = {t(m.api_key)}                        # prefer the env var below instead of pasting a key here
 api_key_env = {t(m.api_key_env)}      # env var read when api_key is empty
