@@ -12,16 +12,14 @@ as a fallback.
 from __future__ import annotations
 
 import hashlib
-import logging
+import io
 import sys
+import urllib.error
 import urllib.request
 import zipfile
-from pathlib import Path
 from typing import Callable
 
 from whisperflow.config import data_dir
-
-log = logging.getLogger(__name__)
 
 # Bump alongside installer/whisperflow.iss's AppVersion whenever the pack's
 # contents (ctranslate2/faster_whisper/CUDA DLL versions) change.
@@ -53,10 +51,13 @@ def ensure_installed(progress_cb: Callable[[str], None] | None = None) -> None:
     report = progress_cb or (lambda msg: None)
 
     report(f"Downloading local-inference pack ({PACK_VERSION}, ~800MB, one-time)...")
-    with urllib.request.urlopen(pack_url(), timeout=120) as resp:
-        zip_bytes = resp.read()
-    with urllib.request.urlopen(pack_sha_url(), timeout=30) as resp:
-        expected_sha = resp.read().decode("ascii").strip().split()[0]
+    try:
+        with urllib.request.urlopen(pack_url(), timeout=120) as resp:
+            zip_bytes = resp.read()
+        with urllib.request.urlopen(pack_sha_url(), timeout=30) as resp:
+            expected_sha = resp.read().decode("ascii").strip().split()[0]
+    except (urllib.error.URLError, OSError) as exc:
+        raise RuntimeError(f"failed to download local-inference pack: {exc}") from exc
 
     report("Verifying download...")
     actual_sha = hashlib.sha256(zip_bytes).hexdigest()
@@ -68,7 +69,6 @@ def ensure_installed(progress_cb: Callable[[str], None] | None = None) -> None:
 
     report("Extracting...")
     PACK_DIR.mkdir(parents=True, exist_ok=True)
-    import io
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         zf.extractall(PACK_DIR)

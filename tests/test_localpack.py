@@ -4,6 +4,7 @@
 import hashlib
 import io
 import sys
+import urllib.error
 import zipfile
 
 import pytest
@@ -103,6 +104,19 @@ def test_ensure_installed_raises_on_checksum_mismatch(tmp_path, monkeypatch):
         localpack.ensure_installed()
     assert localpack.is_installed() is False  # must NOT mark a bad download as complete
     assert not pack_dir.exists() or not (pack_dir / ".pack_complete").exists()
+
+
+def test_ensure_installed_raises_on_download_failure(tmp_path, monkeypatch):
+    pack_dir = tmp_path / "local-pack"
+    monkeypatch.setattr(localpack, "PACK_DIR", pack_dir)
+
+    def fail_urlopen(url, timeout=0):
+        raise urllib.error.URLError("simulated network failure")
+
+    monkeypatch.setattr("urllib.request.urlopen", fail_urlopen)
+    with pytest.raises(RuntimeError, match="download"):
+        localpack.ensure_installed()
+    assert localpack.is_installed() is False  # must NOT mark a failed download as complete
 
 
 def test_activate_prepends_pack_dir_to_syspath(tmp_path, monkeypatch):
