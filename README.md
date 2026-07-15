@@ -132,6 +132,35 @@ python app.py --recommend
 
 Detects your GPU/VRAM/RAM/CPU and prints the best `[model]` settings for your machine (e.g. no NVIDIA GPU → `small` on CPU, or the cloud engine if you have an API key). The app also warns at startup if your config doesn't match your hardware.
 
+## Which speech engine should I pick?
+
+WhisperFlow never picks silently — on first launch you'll see a chooser with a
+recommendation and the full list, and you confirm before anything is saved.
+Change it anytime in **Settings → Speech engine**.
+
+| Engine | Privacy | Cost | Quality | Speed | Needs |
+|---|---|---|---|---|---|
+| **Local** | 🔒 Fully offline | Free | Best | Depends on your GPU | A decent NVIDIA GPU for good speed |
+| **Groq** | ☁ Cloud | Free — 2,000/day | Better | Instant | A free account (30 seconds to sign up) |
+| **Gemini** | ☁ Cloud | Free tier | Better | Fast | A free Google account |
+| **OpenAI** | ☁ Cloud | Paid (~$0.006/min) | Best | Fast | Billing set up on your OpenAI account |
+| **Deepgram** | ☁ Cloud | $200 free credit, then paid | Best | Fast | A free account to start |
+
+**Quick picks:**
+- Good NVIDIA GPU and want everything to stay on your machine → **Local**.
+- No GPU, or your GPU is weak/shared with other apps → **Groq** (free, same
+  Whisper model as Local, but instant — this is what the app recommends for you
+  automatically if it doesn't find a good GPU).
+- Want the best possible accuracy and don't mind paying a little → **OpenAI**
+  or **Deepgram**.
+
+Each cloud option needs its own free (or paid) API key — the in-app chooser and
+Settings screen walk you through getting one with a direct sign-up link, or you
+can add it by hand to a `.env` file next to your data folder:
+```
+GROQ_API_KEY=paste-your-key-here
+```
+
 ## Configuration — `config.toml`
 
 - **Engine**: `[model].engine = "local"` (default — fully on-device, private) or `"gemini"` — bring-your-own-key cloud transcription for machines that can't run a local model. Set your key in a `.env` file next to app.py (`GEMINI_API_KEY=...`, gitignored), via the `GEMINI_API_KEY` env var, or `[model].api_key`. Default cloud model `gemini-2.5-flash`; use `gemini-2.5-pro` for higher accuracy. **Privacy note:** the cloud engine sends dictation audio to Google — the app logs a clear notice when it's active. (TTS-named models like `gemini-2.5-pro-preview-tts` are text-to-speech and are rejected — they can't transcribe.)
