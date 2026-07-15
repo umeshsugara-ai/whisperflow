@@ -118,6 +118,24 @@ def _model_needs_download(model_cfg) -> bool:
     return not (cache / ("models--" + repo.replace("/", "--"))).exists()
 
 
+def _local_pack_needs_download(model_cfg) -> bool:
+    """True when engine="local" but faster_whisper isn't importable AND the
+    on-demand pack hasn't been downloaded yet (WF_BUILD=cloud installs only
+    — a no-op check on a dev checkout or a WF_BUILD=full build)."""
+    if model_cfg.engine != "local":
+        return False
+    from whisperflow.stt import registry
+
+    try:
+        registry._try_import_faster_whisper()
+        return False
+    except ImportError:
+        pass
+    from whisperflow import localpack
+
+    return not localpack.is_installed()
+
+
 def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
     if _model_needs_download(cfg.model):
         # WARNING so it also lands on the main window's Home status strip
@@ -125,6 +143,11 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
             "Downloading the speech model %r (~1.5GB) — first run only, "
             "please keep the app open; dictation starts when it finishes.",
             cfg.model.name,
+        )
+    if _local_pack_needs_download(cfg.model):
+        log.warning(
+            "Downloading the local-inference pack (~800MB, one-time) — "
+            "please keep the app open; dictation starts when it finishes."
         )
     engine = create_engine(cfg.model)
     engine.load()
