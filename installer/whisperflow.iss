@@ -7,7 +7,7 @@
 ; %LOCALAPPDATA%\Programs\WhisperFlow, writable state in %LOCALAPPDATA%\WhisperFlow.
 
 #define AppName "WhisperFlow"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppExe "WhisperFlow.exe"
 #define AppPublisher "Vidysea"
 
