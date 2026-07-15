@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import os
 
 import pytest
 import tomllib
@@ -167,3 +168,48 @@ def test_config_rejects_unregistered_engine(tmp_path):
         assert False, "expected ConfigError"
     except ConfigError as exc:
         assert "engine" in str(exc)
+
+
+# ---- .env writing ----
+
+
+def test_set_env_var_creates_file_when_missing(tmp_path, monkeypatch):
+    from whisperflow.config import set_env_var
+
+    monkeypatch.delenv("TEST_NEW_KEY", raising=False)
+    env_path = tmp_path / ".env"
+    set_env_var("TEST_NEW_KEY", "abc123", path=env_path)
+    assert env_path.read_text(encoding="utf-8") == "TEST_NEW_KEY=abc123\n"
+    assert os.environ["TEST_NEW_KEY"] == "abc123"
+
+
+def test_set_env_var_updates_existing_key_in_place(tmp_path, monkeypatch):
+    from whisperflow.config import set_env_var
+
+    env_path = tmp_path / ".env"
+    env_path.write_text("# a comment\nOTHER_KEY=keep-me\nTARGET_KEY=old-value\n", encoding="utf-8")
+    set_env_var("TARGET_KEY", "new-value", path=env_path)
+    text = env_path.read_text(encoding="utf-8")
+    assert text == "# a comment\nOTHER_KEY=keep-me\nTARGET_KEY=new-value\n"
+    assert os.environ["TARGET_KEY"] == "new-value"
+
+
+def test_set_env_var_appends_when_file_has_other_keys(tmp_path, monkeypatch):
+    from whisperflow.config import set_env_var
+
+    env_path = tmp_path / ".env"
+    env_path.write_text("EXISTING=1\n", encoding="utf-8")
+    set_env_var("NEW_ONE", "hello", path=env_path)
+    text = env_path.read_text(encoding="utf-8")
+    assert text == "EXISTING=1\nNEW_ONE=hello\n"
+
+
+def test_set_env_var_never_logs_the_value(tmp_path, caplog):
+    import logging
+
+    from whisperflow.config import set_env_var
+
+    caplog.set_level(logging.DEBUG)
+    env_path = tmp_path / ".env"
+    set_env_var("SECRET_KEY", "super-secret-value-xyz", path=env_path)
+    assert "super-secret-value-xyz" not in caplog.text

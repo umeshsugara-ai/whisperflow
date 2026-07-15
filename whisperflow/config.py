@@ -185,6 +185,37 @@ def load_dotenv(path: Path | None = None) -> int:
     return count
 
 
+def set_env_var(key: str, value: str, path: Path | None = None) -> None:
+    """Create or update a KEY=VALUE line in the .env file, preserving every
+    other line. Also updates os.environ so the change is picked up
+    immediately in the running process (no restart needed to resolve the
+    key via ModelConfig.resolve_api_key()).
+
+    Never logs `value` — callers (Settings/first-run UI) must not either.
+    """
+    env_path = Path(path) if path else data_dir() / ".env"
+    lines = []
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+
+    found = False
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            existing_key = stripped.split("=", 1)[0].strip()
+            if existing_key == key:
+                new_lines.append(f"{key}={value}")
+                found = True
+                continue
+        new_lines.append(line)
+    if not found:
+        new_lines.append(f"{key}={value}")
+
+    env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    os.environ[key] = value
+
+
 def _validate(cfg: Config) -> None:
     m = cfg.model
     from whisperflow.stt import providers as _providers
