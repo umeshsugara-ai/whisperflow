@@ -68,7 +68,7 @@ The single `OpenAICompatibleEngine` covers Groq, OpenAI, and any OpenAI-compatib
 | id | Tier | Model | Key env | Signup | kind |
 |---|---|---|---|---|---|
 | `groq` | 🟢 free hero | whisper-large-v3-turbo | `GROQ_API_KEY` | console.groq.com/keys | openai_compatible |
-| `gemini` | 🟢 free | gemini-2.5-flash | `GEMINI_API_KEY` | aistudio.google.com/apikey | gemini |
+| `gemini` | 🟢 free | gemini-2.5-flash-lite | `GEMINI_API_KEY` | aistudio.google.com/apikey | gemini |
 | `openai` | 🟡 paid, better | gpt-4o-transcribe | `OPENAI_API_KEY` | platform.openai.com/api-keys | openai_compatible |
 | `deepgram` | 🟡 paid, best | nova-3 | `DEEPGRAM_API_KEY` | console.deepgram.com | deepgram |
 | `nvidia` | 🟢 free credits | whisper-large-v3 | `NVIDIA_API_KEY` | build.nvidia.com | documented-only (gRPC; deferred) |
@@ -97,6 +97,13 @@ Files:
 - **edit** `whisperflow/sysinfo.py` `recommend()` — weak/GPU-less machines recommend
   **`groq`** (free, fast, same model) as the primary cloud option instead of gemini;
   `has_api_key` check generalizes to "any cloud key present".
+- **edit** `whisperflow/config.py` `ModelConfig.cloud_model` default — `gemini-2.5-flash`
+  → `gemini-2.5-flash-lite` (verified 2026-07-15 against ai.google.dev/gemini-api/docs/pricing:
+  audio input $0.30/M tokens vs $1.00/M for `-flash`, same audio-input capability, still
+  current/stable — not deprecated). `gemini-2.5-pro` stays documented as the "higher
+  accuracy, costs more" alternative for users who want it. Any `*-tts-*` model id is
+  rejected by the existing guard in `gemini_engine.py` (TTS models cannot transcribe;
+  unrelated to this change, already correct).
 
 Error handling: HTTP errors surface `RuntimeError(f"{provider} API error {code}: …")`
 (same shape as Gemini); network errors → "unreachable"; 401 → a friendly "your
