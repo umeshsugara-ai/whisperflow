@@ -117,16 +117,24 @@ smoke script hits each provider with a real key.)
 
 ## Phase B — onboarding + decision-support ("which do I pick?")
 
-The user must almost never *have* to choose — the system picks a smart default and the
-config just works. Choice is surfaced clearly for those who care about privacy/budget/
-quality. Three layers:
+**No engine is ever picked silently.** The system computes a recommendation and
+pre-selects/highlights it, but `config.toml` is only written after the user explicitly
+confirms — either by accepting the recommendation with one click or by picking a
+different provider. This changes Phase A's first-run flow: `bootstrap_config()` (added in
+Phase A, `app.py`) currently writes the recommended config unattended before the UI even
+shows. Phase B replaces that call site with a blocking **first-run chooser** (see below);
+`bootstrap_config`'s hardware-probe + `recommend()` logic is reused as-is, only the
+"write immediately" step moves behind user confirmation.
 
-**Layer 1 — system auto-default + reason (how the SYSTEM decides).**
-`recommend(specs, keys_present)` already probes hardware; it returns the pick plus a
-human `reason`. `bootstrap_config()` writes that default on first run — zero user action.
-The Settings picker pre-selects this provider and shows a **"★ Best for your PC — {reason}"**
-line (e.g. "No GPU detected — Groq is free and instant"). The reason string comes straight
-from `recommend()`, no new logic.
+Three decision-support layers, all reachable from both the first-run chooser and the
+Settings screen (same UI component, two entry points):
+
+**Layer 1 — system recommendation + reason (how the SYSTEM decides, user still confirms).**
+`recommend(specs, has_api_key)` already probes hardware; it returns the pick plus a human
+`reason`. The chooser pre-selects/highlights this provider with a **"★ Recommended for
+your PC — {reason}"** line (e.g. "No GPU detected — Groq is free and instant") and a
+**"Use this"** button. The reason string comes straight from `recommend()`, no new logic
+— only WHEN it's applied changes (on confirm, not on load).
 
 **Layer 2 — plain-language badges (how the USER eyeballs it).**
 - **edit** `whisperflow/ui/main_window.py` SettingsPage — new **"Speech engine"** section.
@@ -148,12 +156,27 @@ from `recommend()`, no new logic.
   → local (warns if no GPU); cloud+free → groq; cloud+paid → openai/deepgram. Unit-tested,
   no UI state.
 
-**First-run nudge.**
-- **edit** HomePage — if `recommend()` found no GPU AND no cloud key is set, a dismissible
-  card: *"No GPU detected — local dictation will be slow. Get a free Groq key (2,000
-  dictations/day) for instant cloud transcription."* → **"Set up now"** opens the Settings
-  Speech-engine section. Dismissal persists (`.cloud_hint_dismissed`, same pattern as
-  `.guide_dismissed`).
+**First-run chooser (replaces silent `bootstrap_config` write).**
+- **new** `whisperflow/ui/first_run.py` — a blocking Toplevel shown by `app.py` in place of
+  today's unattended `bootstrap_config()` call, whenever `config.toml` doesn't exist yet.
+  Same layout/badges as the Settings Speech-engine section (Layers 1-3 above, shared
+  rendering code — no duplicated UI logic), opened pre-scrolled to the recommended row.
+  Two ways forward: **"Use recommended (Groq)"** (one click, no key prompt shown yet — see
+  below) or pick any other provider from the list. Choosing **local** or a cloud provider
+  the user already has a key for (detected via env/`​.env`) writes the config and continues
+  straight into the app. Choosing a cloud provider with **no key yet** shows that
+  provider's `setup_steps` + signup link + key field inline (same widget Settings uses) —
+  the config is written, and the app continues, only once a key is entered or the user
+  explicitly picks "I'll add a key later" (which falls back to `local`, with the reason
+  logged, so the app is never left half-configured). This dialog owns the config-write
+  call (`sysinfo.recommend()` → build `Config` → `save_config`), reusing exactly the
+  dataclass-building logic `bootstrap_config()` already has (Phase A) — refactor
+  `bootstrap_config` into a pure `build_recommended_config(specs, rec) -> Config`
+  (no I/O) that both the chooser and any future non-interactive path (`--headless` first
+  run, tests) can call, then have the chooser handle confirmation + `save_config` itself.
+- **edit** HomePage — the old "no GPU, no key" dismissible nudge card is removed (the
+  first-run chooser now covers this moment); HomePage keeps only the existing first-run
+  "How to dictate" guide card (unrelated, already shipped).
 
 **Docs.**
 - **edit** `README.md` — "Which speech engine should I pick?" with a plain flowchart
@@ -163,8 +186,11 @@ from `recommend()`, no new logic.
 
 Tests: `set_env_var` create/update/idempotent + never-logged; `providers.choose()` maps each
 (privacy, budget, hardware) combo to the expected id; picker builds a badge row per registry
-entry; recommended provider is pre-selected with its reason; first-run cloud card shows only
-when GPU-less & keyless & undismissed.
+entry; recommended provider is pre-selected with its reason; `build_recommended_config(specs,
+rec)` is pure (no file I/O, easy to unit-test) and produces a `Config` matching `rec`; the
+first-run chooser does NOT write `config.toml` until a provider is confirmed (no-write-on-open
+is itself a test); confirming a keyless cloud provider without entering a key falls back to
+`local` rather than saving a broken cloud config.
 
 ## Phase C — slim installer (light base + downloadable local-pack)
 
