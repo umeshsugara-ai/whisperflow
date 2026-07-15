@@ -140,3 +140,23 @@ def cloud_providers() -> list[Provider]:
 
 def is_cloud(provider_id: str) -> bool:
     return get(provider_id).kind != "local"
+
+
+def choose(privacy_pref: str, budget_pref: str, specs) -> str:
+    """Map the 2-question "Help me choose" answers to a provider id.
+
+    privacy_pref: "private" (fully offline) | "cloud_ok" (cloud is fine)
+    budget_pref:  "free" | "paid_ok"
+    specs: anything with a `.vram_mb` attribute (sysinfo.SystemSpecs) — kept
+    duck-typed so this module has zero dependency on sysinfo.py.
+
+    Privacy always wins: "private" returns "local" regardless of budget
+    (the local engine works with or without a GPU — just slower on CPU).
+    """
+    if privacy_pref not in ("private", "cloud_ok"):
+        raise ValueError(f"privacy_pref must be 'private' or 'cloud_ok', got {privacy_pref!r}")
+    if budget_pref not in ("free", "paid_ok"):
+        raise ValueError(f"budget_pref must be 'free' or 'paid_ok', got {budget_pref!r}")
+    if privacy_pref == "private":
+        return "local"
+    return "groq" if budget_pref == "free" else "openai"
