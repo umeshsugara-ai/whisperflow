@@ -10,7 +10,7 @@ Free, fully-local voice dictation for Windows 11 — a Wispr Flow alternative wi
 
 > No Python, no git, no setup steps — run the installer, click through the wizard, done. First launch downloads the speech model (~1.5GB, one-time).
 
-Press **Ctrl+Win**, speak, and the text lands in whatever app has focus — browser, IDE, terminal, chat. Speech-to-text runs on your own GPU via [faster-whisper](https://github.com/SYSTRAN/faster-whisper); nothing ever leaves your machine.
+Press your hotkey (**Ctrl+Win** by default, fully customizable), speak, and the text lands in whatever app has focus — browser, IDE, terminal, chat. Speech-to-text runs on your own GPU via [faster-whisper](https://github.com/SYSTRAN/faster-whisper); nothing ever leaves your machine.
 
 ## Quick start
 
@@ -91,14 +91,25 @@ Claude Code will run the commands, edit `config.toml`, launch the app, and verif
 
 ## Usage
 
+Your **hotkey** is whatever `[hotkey].combo` is set to — **`Ctrl+Win` by default**. The gestures below use it; substitute your own combo if you changed it (see *Change your hotkey* below).
+
 | Action | How |
 |---|---|
-| Hold-to-talk | Hold **Ctrl+Win**, speak, release → text is injected |
-| Toggle mode | Tap **Ctrl+Win** (<350ms), speak freely, tap again to finish |
+| Hold-to-talk | Hold your hotkey (default **Ctrl+Win**), speak, release → text is injected |
+| Toggle mode | Tap the hotkey (<350ms), speak freely, tap again to finish |
 | Cancel a recording | **Esc** |
 | Open the app window | **Right-click the pill**, double-click the tray icon, or just run `python app.py` again |
 | Get the raw (uncleaned) transcript | Tray → "Copy last RAW transcript", or the History screen |
 | Switch cleanup level live | Settings screen, or Tray → Cleanup tier (persists now) |
+
+#### Change your hotkey
+
+Two ways — the change takes effect after you **restart** WhisperFlow (the hotkey isn't hot-reloaded):
+
+- **In the app (easiest):** open the app window → **Settings** → pick a combo from the **Hotkey** dropdown (`Ctrl+Win`, `Alt+Win`, or `Win+Space`) → it saves automatically. A "restart to apply" note appears.
+- **By hand:** edit `[hotkey].combo` in `config.toml` — keys joined with `+`, e.g. `combo = "alt+windows"`. Any combo the [`keyboard`](https://github.com/boppreh/keyboard) library understands works. Avoid `alt+space` (Windows system-menu shortcut).
+
+Whatever you set, the pill and the Home screen "How to dictate" card show your actual combo — so it always matches what you press. The **first-run card** on the Home screen is the fastest way for a new teammate to learn the gestures.
 
 ### The app window
 
