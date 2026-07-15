@@ -48,6 +48,19 @@ if ($LocalPack) {
         if (Test-Path $src) { Copy-Item -Recurse $src "$packStage\$pkg" }
     }
 
+    # Validate that all required packages were staged successfully
+    $expectedPkgs = @("faster_whisper", "ctranslate2", "tokenizers", "nvidia")
+    $missing = @()
+    foreach ($pkg in $expectedPkgs) {
+        $stagedPath = "$packStage\$pkg"
+        if (-not (Test-Path $stagedPath)) {
+            $missing += $pkg
+        }
+    }
+    if ($missing.Count -gt 0) {
+        Write-Error "Local-pack staging failed: missing package(s): $($missing -join ', ')"
+    }
+
     $zipPath = "$repo\dist\whisperflow-local-pack-v$packVer.zip"
     Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
     Compress-Archive -Path "$packStage\*" -DestinationPath $zipPath
