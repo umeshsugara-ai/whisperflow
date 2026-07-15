@@ -51,12 +51,16 @@ VALID_DEVICES = {"cuda", "cpu"}
 VALID_COMPUTE_TYPES = {"int8_float16", "float16", "int8", "float32"}
 VALID_CLEANUP_TIERS = {"off", "rules", "llm", "gemini"}
 VALID_INJECT_METHODS = {"auto", "type", "paste"}
-VALID_ENGINES = {"local", "gemini"}
+def _valid_engines() -> set[str]:
+    from whisperflow.stt import providers
+
+    return set(providers.PROVIDERS.keys())
 
 
 @dataclass
 class ModelConfig:
-    engine: str = "local"  # local (faster-whisper, on-device) | gemini (BYOK cloud)
+    engine: str = "local"  # local (faster-whisper, on-device) | any registered provider id
+    # (groq / gemini / openai / deepgram) — see whisperflow.stt.providers for the full list
     name: str = "large-v3-turbo"
     device: str = "cuda"
     compute_type: str = "int8_float16"
@@ -64,7 +68,7 @@ class ModelConfig:
     vad: bool = True
     language: str = ""  # "" = auto-detect
     # cloud engine (BYOK) settings — only used when engine != "local"
-    cloud_model: str = "gemini-2.5-flash"
+    cloud_model: str = "gemini-2.5-flash-lite"  # ~3x cheaper than -flash, same audio-input support
     api_key: str = ""  # inline key (prefer api_key_env)
     api_key_env: str = "GEMINI_API_KEY"  # env var read when api_key is empty
 
@@ -183,9 +187,12 @@ def load_dotenv(path: Path | None = None) -> int:
 
 def _validate(cfg: Config) -> None:
     m = cfg.model
-    if m.engine not in VALID_ENGINES:
-        raise ConfigError(f"[model].engine must be one of {sorted(VALID_ENGINES)}, got {m.engine!r}")
-    if m.engine != "local" and not m.resolve_api_key():
+    from whisperflow.stt import providers as _providers
+
+    valid_engines = _valid_engines()
+    if m.engine not in valid_engines:
+        raise ConfigError(f"[model].engine must be one of {sorted(valid_engines)}, got {m.engine!r}")
+    if _providers.is_cloud(m.engine) and not m.resolve_api_key():
         raise ConfigError(
             f"[model].engine = {m.engine!r} needs an API key: set [model].api_key "
             f"or the {m.api_key_env} environment variable"
@@ -235,9 +242,37 @@ def load_config(path: Path | str | None = None) -> Config:
     return cfg
 
 
+def _build_model_config(section) -> ModelConfig:
+    model_kwargs = {k: v for k, v in section("model").items() if k in ModelConfig.__dataclass_fields__}
+    if "api_key_env" not in model_kwargs:
+        # api_key_env's dataclass default only matches the "gemini" provider; for any
+        # other engine, default it from the provider registry so `resolve_api_key()`
+        # looks at the right env var (e.g. GROQ_API_KEY for engine = "groq").
+        from whisperflow.stt import providers as _providers
+
+        engine = model_kwargs.get("engine", ModelConfig.engine)
+        try:
+            model_kwargs["api_key_env"] = _providers.get(engine).api_key_env
+        except KeyError:
+            pass  # unknown engine — leave default, _validate() will reject it below
+    if "cloud_model" not in model_kwargs:
+        # cloud_model's dataclass default only matches the "gemini" provider; for any
+        # other engine, default it from the provider registry so cloud engines don't
+        # silently post Gemini's model id to their API (e.g. whisper-large-v3-turbo
+        # for engine = "groq").
+        from whisperflow.stt import providers as _providers
+
+        engine = model_kwargs.get("engine", ModelConfig.engine)
+        try:
+            model_kwargs["cloud_model"] = _providers.get(engine).default_model
+        except KeyError:
+            pass  # unknown engine — leave default, _validate() will reject it below
+    return ModelConfig(**model_kwargs)
+
+
 def _build_config(section, replacements, d, cfg_path) -> Config:
     return Config(
-        model=ModelConfig(**{k: v for k, v in section("model").items() if k in ModelConfig.__dataclass_fields__}),
+        model=_build_model_config(section),
         hotkey=HotkeyConfig(**{k: v for k, v in section("hotkey").items() if k in HotkeyConfig.__dataclass_fields__}),
         audio=AudioConfig(**{k: v for k, v in section("audio").items() if k in AudioConfig.__dataclass_fields__}),
         cleanup=CleanupConfig(
@@ -293,7 +328,8 @@ def serialize_config(cfg: Config) -> str:
 
 [model]
 # Not sure what fits your machine? Run:  python app.py --recommend
-engine = {t(m.engine)}           # local (fully on-device, private) | gemini (BYOK cloud — audio goes to Google)
+engine = {t(m.engine)}           # local (fully on-device, private) | any registered cloud provider
+                           # (groq | gemini | openai | deepgram — BYOK, audio leaves the machine)
 
 # --- local engine ---
 # Registry names: large-v3-turbo | large-v3 | medium | small
@@ -306,7 +342,7 @@ vad = {t(m.vad)}
 language = {t(m.language)}      # "" = auto-detect | "en" | "hi" (Devanagari output) |
                            # "hinglish" = Roman-script Hindi+English mix ("kya tum sun rahe ho")
 
-# --- cloud engine (only when engine = "gemini"; bring your own key) ---
+# --- cloud engine (only when engine is a cloud provider; bring your own key) ---
 cloud_model = {t(m.cloud_model)}   # audio-input model; gemini-2.5-pro for higher accuracy
 api_key = {t(m.api_key)}                        # prefer the env var below instead of pasting a key here
 api_key_env = {t(m.api_key_env)}      # env var read when api_key is empty

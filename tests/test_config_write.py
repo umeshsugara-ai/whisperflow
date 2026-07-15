@@ -122,3 +122,48 @@ def test_load_dotenv_missing_file_is_fine(tmp_path):
     from whisperflow.config import load_dotenv
 
     assert load_dotenv(tmp_path / "no-such.env") == 0
+
+
+# ---- provider registry validation ----
+
+
+def test_config_accepts_any_registered_cloud_engine(tmp_path, monkeypatch):
+    from whisperflow.config import load_config
+
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text('[model]\nengine = "groq"\n', encoding="utf-8")
+    cfg = load_config(cfg_path)
+    assert cfg.model.engine == "groq"
+
+
+def test_cloud_model_defaults_from_provider_registry_when_unset(tmp_path, monkeypatch):
+    from whisperflow.config import load_config
+
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text('[model]\nengine = "groq"\n', encoding="utf-8")
+    cfg = load_config(cfg_path)
+    assert cfg.model.cloud_model == "whisper-large-v3-turbo"
+
+
+def test_cloud_model_defaults_from_provider_registry_for_deepgram(tmp_path, monkeypatch):
+    from whisperflow.config import load_config
+
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "k")
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text('[model]\nengine = "deepgram"\n', encoding="utf-8")
+    cfg = load_config(cfg_path)
+    assert cfg.model.cloud_model == "nova-3"
+
+
+def test_config_rejects_unregistered_engine(tmp_path):
+    from whisperflow.config import ConfigError, load_config
+
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text('[model]\nengine = "not-a-real-provider"\n', encoding="utf-8")
+    try:
+        load_config(cfg_path)
+        assert False, "expected ConfigError"
+    except ConfigError as exc:
+        assert "engine" in str(exc)

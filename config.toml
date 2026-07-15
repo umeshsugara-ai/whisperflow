@@ -17,7 +17,7 @@ language = "hinglish"      # "" = auto-detect | "en" | "hi" (Devanagari output) 
                            # "hinglish" = Roman-script Hindi+English mix ("kya tum sun rahe ho")
 
 # --- cloud engine (only when engine = "gemini"; bring your own key) ---
-cloud_model = "gemini-2.5-flash"   # audio-input model; gemini-2.5-pro for higher accuracy
+cloud_model = "gemini-2.5-flash-lite"   # audio-input model; gemini-2.5-pro for higher accuracy
 api_key = ""                        # prefer the env var below instead of pasting a key here
 api_key_env = "GEMINI_API_KEY"      # env var read when api_key is empty
 

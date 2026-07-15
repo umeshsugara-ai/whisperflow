@@ -2,13 +2,13 @@
 
 For users who can't (or don't want to) run a local model: bring your own
 API key, and dictation audio is transcribed by a Gemini audio-input model
-(default gemini-2.5-flash; gemini-2.5-pro for higher accuracy).
+(default gemini-2.5-flash-lite; gemini-2.5-pro for higher accuracy).
 
 PRIVACY: this engine sends the recorded audio to Google's API — the exact
 opposite of the local engine's fully-on-device guarantee. It is opt-in via
 [model].engine = "gemini", and the app logs a clear notice at startup.
 Note: the "-tts" Gemini models are text-to-SPEECH and cannot transcribe;
-this engine needs an audio-input model like gemini-2.5-flash.
+this engine needs an audio-input model like gemini-2.5-flash-lite.
 
 Uses plain REST (urllib, no SDK dependency): audio is wrapped as in-memory
 WAV and sent as inlineData to generateContent with a strict verbatim-
@@ -75,7 +75,7 @@ class GeminiEngine(SttEngine):
         if "tts" in self.model_id.lower():
             raise RuntimeError(
                 f"{self.model_id!r} is a text-to-speech model and cannot transcribe audio; "
-                "use an audio-input model such as gemini-2.5-flash or gemini-2.5-pro"
+                "use an audio-input model such as gemini-2.5-flash-lite or gemini-2.5-pro"
             )
         log.warning(
             "CLOUD ENGINE ACTIVE: dictation audio will be sent to Google (%s). "
