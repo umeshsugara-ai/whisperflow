@@ -146,8 +146,9 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
         )
     if _local_pack_needs_download(cfg.model):
         log.warning(
-            "Downloading the local-inference pack (~800MB, one-time) — "
-            "please keep the app open; dictation starts when it finishes."
+            "Local (on-device) mode needs a one-time download (~800MB) that hasn't "
+            "happened yet — WhisperFlow may fail to start. Open Settings and switch to "
+            "a cloud engine like Groq, or reinstall with the full offline package."
         )
     engine = create_engine(cfg.model)
     engine.load()
@@ -510,7 +511,21 @@ def main() -> int:
     if warning:
         log.warning(warning)
 
-    ctl, listener, history = build_controller(cfg)
+    try:
+        ctl, listener, history = build_controller(cfg)
+    except RuntimeError as exc:
+        log.error("startup failed: %s", exc)
+        if args.headless:
+            raise
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = first_run_root if first_run_root is not None else tk.Tk()
+        if first_run_root is None:
+            root.withdraw()
+        messagebox.showerror("WhisperFlow — startup failed", str(exc), parent=root)
+        root.destroy()
+        return 1
 
     if args.headless:
         return run_headless(cfg, ctl, listener)

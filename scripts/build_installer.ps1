@@ -43,13 +43,13 @@ if ($LocalPack) {
     # venv — this is what makes the native .pyd ABI-compatible with a
     # WF_BUILD=cloud exe built from this same venv.
     $sitePkgs = "$repo\.venv-build\Lib\site-packages"
-    foreach ($pkg in @("faster_whisper", "ctranslate2", "tokenizers", "nvidia")) {
+    foreach ($pkg in @("faster_whisper", "ctranslate2", "tokenizers", "nvidia", "av", "onnxruntime")) {
         $src = "$sitePkgs\$pkg"
         if (Test-Path $src) { Copy-Item -Recurse $src "$packStage\$pkg" }
     }
 
     # Validate that all required packages were staged successfully
-    $expectedPkgs = @("faster_whisper", "ctranslate2", "tokenizers", "nvidia")
+    $expectedPkgs = @("faster_whisper", "ctranslate2", "tokenizers", "nvidia", "av", "onnxruntime")
     $missing = @()
     foreach ($pkg in $expectedPkgs) {
         $stagedPath = "$packStage\$pkg"
@@ -77,7 +77,7 @@ if ($LocalPack) {
 $env:WF_BUILD = if ($Full) { "full" } else { "cloud" }
 Write-Output "== 1/2 PyInstaller freeze (WF_BUILD=$env:WF_BUILD) =="
 & $python -m PyInstaller installer\whisperflow.spec --noconfirm --distpath dist --workpath build
-$exeName = if ($Full) { "WhisperFlow" } else { "WhisperFlow-Cloud" }
+$exeName = "WhisperFlow"
 if (-not (Test-Path "$repo\dist\$exeName\$exeName.exe")) {
     Write-Error "PyInstaller did not produce dist\$exeName\$exeName.exe"
 }

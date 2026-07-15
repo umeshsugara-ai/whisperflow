@@ -38,7 +38,7 @@ First run downloads the default model (`large-v3-turbo`, ~1.5GB) to the HuggingF
 
 Uninstall from Windows Settings → Apps; it asks whether to keep your history/settings.
 
-**Building the installer (maintainer):** install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run `powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1` for the slim cloud-base build (default, ~150MB) or `-Full` for the all-in-one build (~1GB) → `installer\Output\WhisperFlow-Setup.exe`. Build the local-inference pack separately with `-LocalPack` → `dist\whisperflow-local-pack-vX.Y.Z.zip` (+ `.sha256`) — publish both alongside the installer: `gh release upload vX.Y.Z installer\Output\WhisperFlow-Setup.exe dist\whisperflow-local-pack-vX.Y.Z.zip dist\whisperflow-local-pack-vX.Y.Z.zip.sha256`. Bump `PACK_VERSION` in `whisperflow/localpack.py` to match the release tag whenever the pack's contents change.
+**Building the installer (maintainer):** install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run `powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1` for the slim cloud-base build (default, ~150MB) or `-Full` for the all-in-one build (~1GB) → `installer\Output\WhisperFlow-Setup.exe`. Build the local-inference pack separately with `-LocalPack` → `dist\whisperflow-local-pack-vX.Y.Z.zip` (+ `.sha256`) — publish both alongside the installer: `gh release upload vX.Y.Z installer\Output\WhisperFlow-Setup.exe dist\whisperflow-local-pack-vX.Y.Z.zip dist\whisperflow-local-pack-vX.Y.Z.zip.sha256`. Bump `PACK_VERSION` in `whisperflow/localpack.py` to match the release tag (and `installer/whisperflow.iss`'s `AppVersion`) whenever the pack's contents change.
 
 ### Option B — developer install (git clone)
 

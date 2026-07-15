@@ -21,8 +21,8 @@ from typing import Callable
 
 from whisperflow.config import data_dir
 
-# Bump alongside installer/whisperflow.iss's AppVersion whenever the pack's
-# contents (ctranslate2/faster_whisper/CUDA DLL versions) change.
+# Bump to match the release tag (and installer/whisperflow.iss's AppVersion)
+# whenever the pack's contents (ctranslate2/faster_whisper/CUDA DLL versions) change.
 PACK_VERSION = "1.0.1"
 _RELEASE_BASE = f"https://github.com/umeshsugara-ai/whisperflow/releases/download/v{PACK_VERSION}"
 _PACK_NAME = f"whisperflow-local-pack-v{PACK_VERSION}.zip"

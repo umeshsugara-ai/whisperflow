@@ -72,7 +72,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="WhisperFlow" if WF_BUILD == "full" else "WhisperFlow-Cloud",
+    name="WhisperFlow",
     debug=False,
     strip=False,
     upx=False,
@@ -85,5 +85,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="WhisperFlow" if WF_BUILD == "full" else "WhisperFlow-Cloud",
+    name="WhisperFlow",
 )
