@@ -2,6 +2,14 @@
 
 Free, fully-local voice dictation for Windows 11 — a Wispr Flow alternative with zero cloud, zero subscription, and a **non-destructive** cleanup pass (the raw transcript is always preserved).
 
+<p>
+  <a href="https://github.com/umeshsugara-ai/whisperflow/releases/latest/download/WhisperFlow-Setup.exe"><b>⬇ Download for Windows</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/umeshsugara-ai/whisperflow/releases/latest">all releases</a>
+</p>
+
+> No Python, no git, no setup steps — run the installer, click through the wizard, done. First launch downloads the speech model (~1.5GB, one-time).
+
 Press **Ctrl+Win**, speak, and the text lands in whatever app has focus — browser, IDE, terminal, chat. Speech-to-text runs on your own GPU via [faster-whisper](https://github.com/SYSTRAN/faster-whisper); nothing ever leaves your machine.
 
 ## Quick start
