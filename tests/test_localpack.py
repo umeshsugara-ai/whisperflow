@@ -139,3 +139,44 @@ def test_activate_raises_when_not_installed(tmp_path, monkeypatch):
     monkeypatch.setattr(localpack, "PACK_DIR", tmp_path / "local-pack")
     with pytest.raises(RuntimeError, match="not installed"):
         localpack.activate()
+
+
+def test_registry_local_dispatch_is_noop_when_faster_whisper_importable(monkeypatch):
+    """The common case (dev checkout / full build): faster_whisper is
+    already importable, so the pack machinery must never be touched."""
+    from whisperflow.stt import registry
+
+    called = {"ensure": False, "activate": False}
+    monkeypatch.setattr(localpack, "ensure_installed", lambda *a, **kw: called.__setitem__("ensure", True))
+    monkeypatch.setattr(localpack, "activate", lambda: called.__setitem__("activate", True))
+    # faster_whisper IS installed in this dev/test environment (it's a real
+    # project dependency — see requirements.txt), so this exercises the
+    # real "already importable" branch, not a mock.
+    registry._ensure_local_available()
+    assert called == {"ensure": False, "activate": False}
+
+
+def test_registry_local_dispatch_falls_back_to_pack_when_not_importable(monkeypatch):
+    from whisperflow.stt import registry
+
+    def fake_import_faster_whisper():
+        raise ImportError("no module named faster_whisper")
+
+    monkeypatch.setattr(registry, "_try_import_faster_whisper", fake_import_faster_whisper)
+    monkeypatch.setattr(localpack, "is_installed", lambda: True)
+    activated = {"called": False}
+    monkeypatch.setattr(localpack, "activate", lambda: activated.__setitem__("called", True))
+    registry._ensure_local_available()
+    assert activated["called"] is True
+
+
+def test_registry_local_dispatch_raises_friendly_error_when_pack_missing(monkeypatch):
+    from whisperflow.stt import registry
+
+    def fake_import_faster_whisper():
+        raise ImportError("no module named faster_whisper")
+
+    monkeypatch.setattr(registry, "_try_import_faster_whisper", fake_import_faster_whisper)
+    monkeypatch.setattr(localpack, "is_installed", lambda: False)
+    with pytest.raises(RuntimeError, match="one-time download"):
+        registry._ensure_local_available()
