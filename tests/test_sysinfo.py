@@ -34,7 +34,7 @@ def test_no_gpu_decent_cpu_gets_small_cpu():
 
 def test_weak_machine_with_key_gets_cloud():
     rec = recommend(specs(vram_mb=0, ram_gb=4, cores=2), has_api_key=True)
-    assert rec.engine == "gemini"
+    assert rec.engine == "groq"
     assert "audio leaves the machine" in rec.reason
 
 
@@ -42,13 +42,21 @@ def test_weak_machine_without_key_gets_small_with_cloud_alternative():
     rec = recommend(specs(vram_mb=0, ram_gb=4, cores=2), has_api_key=False)
     assert rec.engine == "local"
     assert rec.name == "small"
-    assert any("gemini" in a for a in rec.alternatives)
+    assert any("groq" in a for a in rec.alternatives)
+
+
+def test_no_gpu_weak_cpu_without_key_still_mentions_groq_as_free_option():
+    # even with NO key, the free-tier cloud option should be surfaced —
+    # unlike the old gemini-only behavior, groq needs no pre-existing key
+    # to be worth recommending (it's free to sign up for).
+    rec = recommend(specs(vram_mb=0, ram_gb=4, cores=2), has_api_key=False)
+    assert any("groq" in a.lower() for a in rec.alternatives)
 
 
 def test_gpu_owner_with_key_gets_cloud_as_alternative_not_default():
     rec = recommend(specs(vram_mb=8192, gpu="RTX 4060"), has_api_key=True)
     assert rec.engine == "local"  # local stays default when hardware allows
-    assert any("gemini" in a for a in rec.alternatives)
+    assert any("groq" in a for a in rec.alternatives)
 
 
 def test_startup_check_flags_cuda_without_gpu():

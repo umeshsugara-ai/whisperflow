@@ -233,7 +233,7 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
     if specs.vram_mb >= 5000:
         alts.append("large-v3 (best Hindi accuracy, ~5x slower) if you can wait")
         if has_api_key:
-            alts.append("engine='gemini' to save all VRAM for other GPU work")
+            alts.append("engine='groq' to save all VRAM for other GPU work")
         return Recommendation(
             engine="local",
             name="large-v3-turbo",
@@ -263,13 +263,14 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
             device="cuda",
             compute_type="int8_float16",
             reason=f"{specs.gpu_name} has only {specs.vram_mb / 1024:.1f}GB VRAM — small is the safe fit",
-            alternatives=["engine='gemini' (BYOK) for better accuracy than small"] if has_api_key else [],
+            alternatives=["engine='groq' (free) for better accuracy than small"],
         )
 
     if specs.ram_gb >= 8 and specs.cpu_cores >= 4:
-        alts = ["medium on cpu if accuracy matters more than speed"]
-        if has_api_key:
-            alts.insert(0, "engine='gemini' (BYOK) — much better accuracy than small, no download")
+        alts = [
+            "engine='groq' (free, 2000/day) — instant cloud transcription, no download",
+            "medium on cpu if accuracy matters more than speed and you want to stay offline",
+        ]
         return Recommendation(
             engine="local",
             name="small",
@@ -282,12 +283,12 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
 
     if has_api_key:
         return Recommendation(
-            engine="gemini",
-            name="gemini-2.5-flash",
+            engine="groq",
+            name="whisper-large-v3-turbo",
             device="cpu",
             compute_type="int8",
             reason=f"this machine ({specs.cpu_cores} cores, {specs.ram_gb:.0f}GB RAM, no NVIDIA GPU) "
-            "is too weak for a good local model — BYOK cloud is the honest recommendation "
+            "is too weak for a good local model — free cloud (Groq) is the honest recommendation "
             "(note: audio leaves the machine)",
             alternatives=["small on cpu (fully private but slow and less accurate)"],
         )
@@ -298,8 +299,8 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
         device="cpu",
         compute_type="int8",
         reason=f"this machine ({specs.cpu_cores} cores, {specs.ram_gb:.0f}GB RAM, no NVIDIA GPU) "
-        "will be slow — consider [model].engine='gemini' with your own API key for better quality",
-        alternatives=["engine='gemini' (set GEMINI_API_KEY) — better accuracy, but audio goes to Google"],
+        "will run small slowly — consider a free Groq key for instant cloud transcription instead",
+        alternatives=["engine='groq' — free, 2000 requests/day, no local download needed"],
     )
 
 
