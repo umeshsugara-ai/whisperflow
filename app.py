@@ -21,7 +21,7 @@ if sys.stdout:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from whisperflow.audio import Recorder
-from whisperflow.config import load_config, load_dotenv
+from whisperflow.config import DEFAULT_CONFIG_PATH, data_dir, load_config, load_dotenv
 from whisperflow.controller import Controller, DictationResult, State
 from whisperflow.dictionary import vocabulary_prompt
 from whisperflow.history import History
@@ -72,7 +72,7 @@ def setup_logging() -> None:
     global _recent_warnings
     _recent_warnings = deque(maxlen=50)
 
-    log_dir = APP_ROOT / "logs"
+    log_dir = data_dir() / "logs"
     log_dir.mkdir(exist_ok=True)
     warn_buffer = _WarningBuffer()
     warn_buffer.setLevel(logging.WARNING)
@@ -101,13 +101,36 @@ def warmup(engine) -> None:
     log.info("CUDA warmup done in %.1fs", time.perf_counter() - t0)
 
 
+def _model_needs_download(model_cfg) -> bool:
+    """True when the local faster-whisper model isn't in the HF cache yet."""
+    if model_cfg.engine != "local":
+        return False
+    from whisperflow.stt.registry import resolve_model_id
+
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+
+        cache = Path(HF_HUB_CACHE)
+    except Exception:  # noqa: BLE001 — heuristic only, never block startup
+        cache = Path.home() / ".cache" / "huggingface" / "hub"
+    repo = resolve_model_id(model_cfg.name)
+    return not (cache / ("models--" + repo.replace("/", "--"))).exists()
+
+
 def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
+    if _model_needs_download(cfg.model):
+        # WARNING so it also lands on the main window's Home status strip
+        log.warning(
+            "Downloading the speech model %r (~1.5GB) — first run only, "
+            "please keep the app open; dictation starts when it finishes.",
+            cfg.model.name,
+        )
     engine = create_engine(cfg.model)
     engine.load()
     warmup(engine)
 
     recorder = Recorder(cfg.audio)
-    history = History(APP_ROOT / "history.jsonl", max_entries=cfg.history.max_entries)
+    history = History(data_dir() / "history.jsonl", max_entries=cfg.history.max_entries)
 
     def on_result(result: DictationResult) -> None:
         history.append(
@@ -317,6 +340,33 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False) -> int:
     return 0
 
 
+def bootstrap_config(path: Path):
+    """First run with no config.toml (installed build): probe the hardware,
+    generate a config from the recommendation, and save it — the installed
+    user never runs `--recommend` or edits TOML by hand."""
+    from whisperflow import sysinfo
+    from whisperflow.config import Config, ModelConfig, save_config
+
+    specs = sysinfo.probe()
+    rec = sysinfo.recommend(specs, has_api_key=bool(ModelConfig().resolve_api_key()))
+    cfg = Config(path=path)
+    cfg.model.engine = rec.engine
+    if rec.engine == "local":
+        cfg.model.name = rec.name
+        cfg.model.device = rec.device
+        cfg.model.compute_type = rec.compute_type
+    else:
+        cfg.model.cloud_model = rec.name
+    save_config(cfg, path)
+    log.info(
+        "first run — generated %s for %s (%s)",
+        path.name,
+        specs.gpu_name or f"CPU ({specs.cpu_cores} cores, {specs.ram_gb:.0f}GB RAM)",
+        rec.reason,
+    )
+    return cfg
+
+
 def print_recommendation() -> int:
     from whisperflow import sysinfo
     from whisperflow.config import ModelConfig
@@ -392,7 +442,11 @@ def main() -> int:
         print("WhisperFlow is already running.")
         return 2
 
-    cfg = load_config(args.config)
+    cfg_path = Path(args.config) if args.config else DEFAULT_CONFIG_PATH
+    if not cfg_path.exists():
+        cfg = bootstrap_config(cfg_path)
+    else:
+        cfg = load_config(cfg_path)
     log.info(
         "config: engine=%s model=%s hotkey=%s cleanup=%s",
         cfg.model.engine,
@@ -408,7 +462,7 @@ def main() -> int:
     # reboot (Wispr-style). Sentinel-gated so a later opt-out via the tray is
     # never overridden. Disable entirely with [startup].auto_register = false.
     if cfg.startup.auto_register:
-        sysinfo.ensure_autostart(APP_ROOT / ".autostart_initialized")
+        sysinfo.ensure_autostart(data_dir() / ".autostart_initialized")
 
     warning = sysinfo.startup_check(cfg.model, sysinfo.probe())
     if warning:

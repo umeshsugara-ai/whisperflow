@@ -35,7 +35,9 @@ BORDER = "#ffffff"  # white outline so the pill stays visible on dark AND light 
 BORDER_W = 2
 TRANSPARENT = "#010203"  # unlikely-to-clash colorkey for rounded corners
 
-POS_FILE = Path(__file__).resolve().parent.parent.parent / "overlay_pos.txt"
+from whisperflow.config import data_dir
+
+POS_FILE = data_dir() / "overlay_pos.txt"
 
 N_BARS = 14
 

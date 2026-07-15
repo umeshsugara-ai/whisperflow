@@ -52,6 +52,10 @@ def _is_store_python() -> bool:
 
 def autostart_command() -> str:
     """Exact command written to the Run key."""
+    if getattr(sys, "frozen", False):
+        # installed (PyInstaller) build: the exe IS the app — no interpreter,
+        # no run.vbs indirection needed
+        return f'"{Path(sys.executable).resolve()}" --autostart'
     app_py = _APP_ROOT / "app.py"
     if _is_store_python():
         wscript = Path(os.path.expandvars(r"%SystemRoot%\System32\wscript.exe"))

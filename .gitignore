@@ -8,8 +8,14 @@ __pycache__/
 
 # Virtual environments
 .venv/
+.venv-build/
 venv/
 env/
+
+# Installer build artifacts (scripts/build_installer.ps1)
+build/
+dist/
+installer/Output/
 
 # Runtime logs
 logs/

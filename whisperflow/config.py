@@ -10,12 +10,42 @@ values so a GUI save stays as self-documenting as the shipped file).
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-APP_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONFIG_PATH = APP_ROOT / "config.toml"
+
+def is_frozen() -> bool:
+    """True when running as a PyInstaller-frozen exe (installed build)."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def app_root() -> Path:
+    """Where the program lives: the exe's folder when frozen, else the repo root.
+
+    Read-only in an installed build (Program Files) — never write here.
+    """
+    if is_frozen():
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def data_dir() -> Path:
+    """Where writable state lives (config.toml, history, logs, .env).
+
+    Installed build: %LOCALAPPDATA%\\WhisperFlow (created on demand).
+    Dev checkout: the repo root — the dev workflow is unchanged.
+    """
+    if is_frozen():
+        d = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "WhisperFlow"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    return app_root()
+
+
+APP_ROOT = app_root()
+DEFAULT_CONFIG_PATH = data_dir() / "config.toml"
 
 VALID_DEVICES = {"cuda", "cpu"}
 VALID_COMPUTE_TYPES = {"int8_float16", "float16", "int8", "float32"}
@@ -128,10 +158,11 @@ def load_dotenv(path: Path | None = None) -> int:
     """Load KEY=VALUE lines from a .env file into os.environ; existing vars win.
 
     The non-technical way to provide secrets like GEMINI_API_KEY: a `.env`
-    file next to app.py (gitignored, never committed). Missing file is fine.
+    file in the data folder (next to app.py in a dev checkout; in
+    %LOCALAPPDATA%\\WhisperFlow for an installed build). Missing file is fine.
     Returns the number of variables set.
     """
-    env_path = Path(path) if path else APP_ROOT / ".env"
+    env_path = Path(path) if path else data_dir() / ".env"
     try:
         lines = env_path.read_text(encoding="utf-8").splitlines()
     except (FileNotFoundError, OSError):

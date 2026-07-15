@@ -21,6 +21,19 @@ First run downloads the default model (`large-v3-turbo`, ~1.5GB) to the HuggingF
 
 ## Install on a new machine (teammates)
 
+### Option A — the .exe installer (easiest, no Python needed)
+
+1. Download **`WhisperFlow-Setup.exe`** from the repo's [GitHub Releases](https://github.com/umeshsugara-ai/whisperflow/releases) page (you need collaborator access).
+2. Run it and click through the wizard — it asks about **start with Windows** and a **desktop shortcut**, then installs per-user (no admin needed).
+3. Finish with "Launch WhisperFlow" checked. On first launch the app detects your hardware, generates its own config, and **downloads the speech model (~1.5GB, one-time)** — keep it open until the pill appears and dictation works.
+4. Settings, dictation history, and logs live in `%LOCALAPPDATA%\WhisperFlow`. To use the Gemini cloud engine, put `GEMINI_API_KEY=your-key` in a `.env` file in that folder.
+
+Uninstall from Windows Settings → Apps; it asks whether to keep your history/settings.
+
+**Building the installer (maintainer):** install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run `powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1` → `installer\Output\WhisperFlow-Setup.exe`, and attach it to a GitHub release.
+
+### Option B — developer install (git clone)
+
 Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recommended — the Microsoft Store or [python.org](https://www.python.org/downloads/) build; both include the `tkinter` used by the pill/tray). Nothing in the repo hardcodes another user's paths — autostart resolves the Python path per-machine on first run.
 
 1. **Get the code.** Ask the repo owner to add you as a collaborator (it's private), then:
