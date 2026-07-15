@@ -1,5 +1,5 @@
 # Builds WhisperFlow-Setup.exe end to end:
-#   1. PyInstaller freeze  -> dist\WhisperFlow\WhisperFlow.exe (or WhisperFlow-Cloud\WhisperFlow-Cloud.exe)
+#   1. PyInstaller freeze  -> dist\WhisperFlow\WhisperFlow.exe
 #   2. Inno Setup compile  -> installer\Output\WhisperFlow-Setup.exe
 #
 # One-time prerequisite on the build machine:
