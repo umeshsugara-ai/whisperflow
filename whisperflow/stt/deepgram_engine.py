@@ -89,4 +89,4 @@ class DeepgramEngine(SttEngine):
         try:
             return body["results"]["channels"][0]["alternatives"][0]["transcript"].strip()
         except (KeyError, IndexError, TypeError):
-            raise RuntimeError(f"Deepgram returned no transcription: {body}") from None
+            raise RuntimeError(f"Deepgram returned no transcription: {str(body)[:300]}") from None
