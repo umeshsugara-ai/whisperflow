@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import time
 import tkinter as tk
+import webbrowser
 from tkinter import ttk
 from typing import Callable
 
@@ -33,10 +34,13 @@ from whisperflow.config import (
     Replacement,
     data_dir,
     save_config,
+    set_env_var,
 )
 from whisperflow.history import History, average_wpm, compute_streak
 from whisperflow.hotkey import format_hotkey_label
+from whisperflow.stt import providers as _stt_providers
 from whisperflow.ui import icons
+from whisperflow.ui.engine_picker import badge_line
 from whisperflow.ui.history_view import HistoryPane
 
 BG = "#161412"
@@ -495,6 +499,7 @@ class SettingsPage(tk.Frame):
         # values at app launch — changing these needs a restart to take effect
         self._launch_combo = cfg.hotkey.combo
         self._launch_language = cfg.model.language
+        self._launch_engine = cfg.model.engine
 
         tk.Label(self, text="Settings", bg=BG, fg=FG, font=("Segoe UI", 14, "bold")).pack(
             anchor="w", padx=16, pady=(14, 10)
@@ -568,6 +573,25 @@ class SettingsPage(tk.Frame):
             font=("Segoe UI", 9),
         ).pack(anchor="w")
 
+        self._engine_recommended_id = None  # set lazily in refresh() via sysinfo.recommend()
+        engine_holder = row(10, "Speech engine", "Changing engine takes effect after restart.")
+        self.engine_var = tk.StringVar()
+        self._engine_combo = ttk.Combobox(
+            engine_holder, textvariable=self.engine_var,
+            values=[p.id for p in _stt_providers.all_providers()],
+            state="readonly", width=32, style="WF.TCombobox",
+        )
+        self._engine_combo.pack(anchor="w")
+        self._engine_combo.bind("<<ComboboxSelected>>", lambda e: self._on_engine_picked())
+
+        self._engine_badge = tk.Label(
+            engine_holder, text="", bg=BG, fg=FG_DIM, font=("Segoe UI", 8), wraplength=520, justify="left"
+        )
+        self._engine_badge.pack(anchor="w", pady=(2, 0))
+
+        self._engine_key_frame = tk.Frame(engine_holder, bg=BG)
+        self._engine_key_frame.pack(anchor="w", fill="x", pady=(6, 0))
+
         foot = tk.Frame(self, bg=BG)
         foot.pack(fill="x", padx=16, pady=(14, 4))
         _button(foot, "Save", self._save).pack(side="left")
@@ -602,10 +626,61 @@ class SettingsPage(tk.Frame):
             + "  —  advanced settings live in the config file"
         )
         self._update_banner()
+        if self._engine_recommended_id is None:
+            specs = sysinfo.probe()
+            has_key = any(
+                os.environ.get(p.api_key_env) for p in _stt_providers.cloud_providers() if p.api_key_env
+            )
+            self._engine_recommended_id = sysinfo.recommend(specs, has_api_key=has_key).engine
+        self.engine_var.set(self.cfg.model.engine)
+        self._on_engine_picked()
 
     def _selected_language(self) -> str:
         label = self.language_var.get()
         return next((v for lb, v in LANGUAGE_CHOICES if lb == label), "")
+
+    def _on_engine_picked(self) -> None:
+        engine_id = self.engine_var.get()
+        provider = _stt_providers.get(engine_id)
+        star = "★ Recommended for your PC — " if engine_id == self._engine_recommended_id else ""
+        self._engine_badge.config(text=f"{star}{badge_line(provider)}")
+        self._render_key_entry(provider)
+
+    def _render_key_entry(self, provider) -> None:
+        for child in self._engine_key_frame.winfo_children():
+            child.destroy()
+        if provider.kind == "local":
+            return
+        already_set = bool(os.environ.get(provider.api_key_env))
+        if already_set:
+            tk.Label(
+                self._engine_key_frame, text=f"✓ {provider.api_key_env} is set",
+                bg=BG, fg=ACCENT_OK, font=("Segoe UI", 9),
+            ).pack(anchor="w")
+            return
+        _button(
+            self._engine_key_frame, "Get a free key →",
+            lambda: webbrowser.open(provider.signup_url),
+        ).pack(anchor="w")
+        for i, step in enumerate(provider.setup_steps, start=1):
+            tk.Label(
+                self._engine_key_frame, text=f"{i}. {step}", bg=BG, fg=FG_DIM,
+                font=("Segoe UI", 8), wraplength=520, justify="left", anchor="w",
+            ).pack(anchor="w", pady=(4 if i == 1 else 0, 0))
+        key_row = tk.Frame(self._engine_key_frame, bg=BG)
+        key_row.pack(anchor="w", pady=(6, 0))
+        key_var = tk.StringVar()
+        entry = tk.Entry(key_row, textvariable=key_var, show="•", width=40, bg=FIELD, fg=FG, insertbackground=FG)
+        entry.pack(side="left")
+
+        def _save_key() -> None:
+            value = key_var.get().strip()
+            if not value:
+                return
+            set_env_var(provider.api_key_env, value, path=self.cfg.path.parent / ".env")
+            self._render_key_entry(provider)  # re-render to show "✓ ... is set"
+
+        _button(key_row, "Save key", _save_key).pack(side="left", padx=(6, 0))
 
     def _toggle_autostart(self) -> None:
         try:
@@ -622,6 +697,8 @@ class SettingsPage(tk.Frame):
             pending.append(f"hotkey ({format_hotkey_label(self.cfg.hotkey.combo)})")
         if self.cfg.model.language != self._launch_language:
             pending.append("language")
+        if self.cfg.model.engine != self._launch_engine:
+            pending.append("speech engine")
         if pending:
             self._banner.config(
                 text="⚠ Restart WhisperFlow to apply the new "
@@ -633,17 +710,18 @@ class SettingsPage(tk.Frame):
 
     def _save(self) -> None:
         old = (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
-               self.cfg.overlay.always_visible, self.cfg.overlay.show_hint)
+               self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine)
         self.cfg.hotkey.combo = self.hotkey_var.get()
         self.cfg.model.language = self._selected_language()
         self.cfg.cleanup.tier = self.tier_var.get()
         self.cfg.overlay.always_visible = self.overlay_var.get()
         self.cfg.overlay.show_hint = self.hint_var.get()
+        self.cfg.model.engine = self.engine_var.get()
         try:
             self.persist()
         except (ConfigError, OSError) as exc:
             (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
-             self.cfg.overlay.always_visible, self.cfg.overlay.show_hint) = old
+             self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine) = old
             self._status.config(text=str(exc), fg=ACCENT_ERR)
             return
         self._status.config(text="Saved ✓", fg=ACCENT_OK)
