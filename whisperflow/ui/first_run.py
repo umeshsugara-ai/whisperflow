@@ -133,7 +133,7 @@ def show_first_run_chooser(root, specs, rec, path):
             value = key_var.get().strip()
             if not value:
                 return
-            set_env_var(provider.api_key_env, value)
+            set_env_var(provider.api_key_env, value, path=path.parent / ".env")
             cfg = build_config_for_engine(provider.id, specs)
             cfg.path = path
             _finish(cfg)
@@ -153,6 +153,21 @@ def show_first_run_chooser(root, specs, rec, path):
         cfg.path = path
         _finish(cfg)
 
+    def _give_up_local() -> None:
+        # Escape hatch for a persistent save failure (e.g. a genuinely
+        # unwritable config directory): bypass save_config entirely — it's
+        # what's failing — and hand the caller an in-memory-only Config so
+        # the app can still attempt to launch with sane defaults, even
+        # though nothing was persisted to disk.
+        from whisperflow.config import Config
+
+        cfg = Config()
+        cfg.model.engine = "local"
+        cfg.path = path
+        result["cfg"] = cfg
+        win.grab_release()
+        win.destroy()
+
     def _show_error(message: str) -> None:
         for child in list_frame.winfo_children():
             child.destroy()
@@ -168,6 +183,10 @@ def show_first_run_chooser(root, specs, rec, path):
             list_frame, text="Close this window to fall back to Local (on-device).",
             bg=BG, fg=FG_DIM, font=("Segoe UI", 9, "italic"), wraplength=480, justify="left",
         ).pack(anchor="w", pady=(8, 0))
+        tk.Button(
+            list_frame, text="Quit (use Local in-memory, nothing saved)", command=_give_up_local,
+            bg=BTN, fg=FG, relief="flat", padx=8, pady=4, cursor="hand2",
+        ).pack(anchor="w", pady=(10, 0))
 
     def _finish(cfg) -> None:
         from whisperflow.config import ConfigError, save_config

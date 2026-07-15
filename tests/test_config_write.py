@@ -186,6 +186,7 @@ def test_set_env_var_creates_file_when_missing(tmp_path, monkeypatch):
 def test_set_env_var_updates_existing_key_in_place(tmp_path, monkeypatch):
     from whisperflow.config import set_env_var
 
+    monkeypatch.delenv("TARGET_KEY", raising=False)
     env_path = tmp_path / ".env"
     env_path.write_text("# a comment\nOTHER_KEY=keep-me\nTARGET_KEY=old-value\n", encoding="utf-8")
     set_env_var("TARGET_KEY", "new-value", path=env_path)
@@ -197,6 +198,7 @@ def test_set_env_var_updates_existing_key_in_place(tmp_path, monkeypatch):
 def test_set_env_var_appends_when_file_has_other_keys(tmp_path, monkeypatch):
     from whisperflow.config import set_env_var
 
+    monkeypatch.delenv("NEW_ONE", raising=False)
     env_path = tmp_path / ".env"
     env_path.write_text("EXISTING=1\n", encoding="utf-8")
     set_env_var("NEW_ONE", "hello", path=env_path)
@@ -204,11 +206,12 @@ def test_set_env_var_appends_when_file_has_other_keys(tmp_path, monkeypatch):
     assert text == "EXISTING=1\nNEW_ONE=hello\n"
 
 
-def test_set_env_var_never_logs_the_value(tmp_path, caplog):
+def test_set_env_var_never_logs_the_value(tmp_path, caplog, monkeypatch):
     import logging
 
     from whisperflow.config import set_env_var
 
+    monkeypatch.delenv("SECRET_KEY", raising=False)
     caplog.set_level(logging.DEBUG)
     env_path = tmp_path / ".env"
     set_env_var("SECRET_KEY", "super-secret-value-xyz", path=env_path)

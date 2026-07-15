@@ -325,12 +325,21 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
     )
 
 
+def _config_and_providers():
+    """Shared lazy import for build_recommended_config/build_config_for_engine
+    — both need Config + the provider registry but import lazily (module
+    scope would risk a circular import with whisperflow.config/stt)."""
+    from whisperflow.config import Config
+    from whisperflow.stt import providers
+
+    return Config, providers
+
+
 def build_recommended_config(rec: Recommendation):
     """Pure: build a Config from a Recommendation, no file I/O. Used by both
     the unattended `--headless` first-run path (app.py bootstrap_config) and
     the interactive first-run chooser's "Use recommended" button."""
-    from whisperflow.config import Config
-    from whisperflow.stt import providers
+    Config, providers = _config_and_providers()
 
     cfg = Config()
     cfg.model.engine = rec.engine
@@ -357,8 +366,7 @@ def build_config_for_engine(engine_id: str, specs: SystemSpecs):
     """
     if engine_id == "local":
         return build_recommended_config(recommend(specs, has_api_key=False))
-    from whisperflow.config import Config
-    from whisperflow.stt import providers
+    Config, providers = _config_and_providers()
 
     provider = providers.get(engine_id)
     cfg = Config()

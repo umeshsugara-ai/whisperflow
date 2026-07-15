@@ -710,18 +710,37 @@ class SettingsPage(tk.Frame):
 
     def _save(self) -> None:
         old = (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
-               self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine)
+               self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
+               self.cfg.model.cloud_model, self.cfg.model.api_key_env, self.cfg.model.name,
+               self.cfg.model.device, self.cfg.model.compute_type)
         self.cfg.hotkey.combo = self.hotkey_var.get()
         self.cfg.model.language = self._selected_language()
         self.cfg.cleanup.tier = self.tier_var.get()
         self.cfg.overlay.always_visible = self.overlay_var.get()
         self.cfg.overlay.show_hint = self.hint_var.get()
-        self.cfg.model.engine = self.engine_var.get()
+        new_engine = self.engine_var.get()
+        if new_engine != self.cfg.model.engine:
+            # Engine actually changed: rebuild cloud_model/api_key_env (and
+            # local name/device/compute_type) from the registry/hardware —
+            # same as first_run.py's build_config_for_engine — so we never
+            # save a stale cloud_model/api_key_env pointing at the previous
+            # provider (e.g. engine="groq" with a leftover Gemini model id
+            # and GEMINI_API_KEY, which silently posts the wrong model to
+            # the wrong API and reads the wrong key).
+            rebuilt = sysinfo.build_config_for_engine(new_engine, sysinfo.probe())
+            self.cfg.model.engine = new_engine
+            self.cfg.model.cloud_model = rebuilt.model.cloud_model
+            self.cfg.model.api_key_env = rebuilt.model.api_key_env
+            self.cfg.model.name = rebuilt.model.name
+            self.cfg.model.device = rebuilt.model.device
+            self.cfg.model.compute_type = rebuilt.model.compute_type
         try:
             self.persist()
         except (ConfigError, OSError) as exc:
             (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
-             self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine) = old
+             self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
+             self.cfg.model.cloud_model, self.cfg.model.api_key_env, self.cfg.model.name,
+             self.cfg.model.device, self.cfg.model.compute_type) = old
             self._status.config(text=str(exc), fg=ACCENT_ERR)
             return
         self._status.config(text="Saved ✓", fg=ACCENT_OK)
