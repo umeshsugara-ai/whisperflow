@@ -31,6 +31,7 @@ from whisperflow.config import (
     ConfigError,
     DictionaryConfig,
     Replacement,
+    data_dir,
     save_config,
 )
 from whisperflow.history import History, average_wpm, compute_streak
@@ -77,6 +78,31 @@ def humanize_ts(ts: str, today: str) -> str:
         return ts
     day, clock = ts[:10], ts[11:16]
     return f"Today {clock}" if day == today else f"{day[5:]} {clock}"
+
+
+# First-run "How to use" card (Home screen). Dismissal is remembered in a
+# marker file so the card never comes back after "Got it".
+GUIDE_DISMISSED_FILE = ".guide_dismissed"
+
+
+def guide_dismissed() -> bool:
+    return (data_dir() / GUIDE_DISMISSED_FILE).exists()
+
+
+def dismiss_guide() -> None:
+    try:
+        (data_dir() / GUIDE_DISMISSED_FILE).write_text("1", encoding="utf-8")
+    except OSError:
+        pass  # worst case the card shows again next launch
+
+
+def guide_lines(hotkey_label: str) -> list[tuple[str, str]]:
+    """(gesture, what it does) rows for the how-to-use card."""
+    return [
+        (f"Hold {hotkey_label}", "speak while holding, release — your words are typed"),
+        (f"Tap {hotkey_label}", "hands-free: tap to start, speak freely, tap again to finish"),
+        ("Esc", "cancel a recording (nothing is typed)"),
+    ]
 
 
 def _button(parent, text, command, **kw) -> tk.Button:
@@ -147,7 +173,8 @@ class MainWindow:
 
         self._pages: dict[str, tk.Frame] = {
             "home": HomePage(
-                content, history, warnings_source, open_history=lambda: self.show_page("history")
+                content, history, warnings_source,
+                open_history=lambda: self.show_page("history"), cfg=cfg,
             ),
             "history": HistoryPane(content, history),
             "dictionary": DictionaryPage(content, cfg, persist),
@@ -185,7 +212,7 @@ class MainWindow:
 
 
 class HomePage(tk.Frame):
-    def __init__(self, parent, history: History, warnings_source, open_history) -> None:
+    def __init__(self, parent, history: History, warnings_source, open_history, cfg: Config | None = None) -> None:
         super().__init__(parent, bg=BG)
         self.history = history
         self.warnings_source = warnings_source or (lambda: [])
@@ -196,6 +223,9 @@ class HomePage(tk.Frame):
         self._status = tk.Label(self, text="", bg=BG, fg=ACCENT_OK, font=("Segoe UI", 9), cursor="hand2")
         self._status.pack(anchor="w", padx=16, pady=(0, 8))
         self._status.bind("<Button-1>", lambda e: self._show_warnings())
+
+        if cfg is not None and not guide_dismissed():
+            self._build_guide_card(format_hotkey_label(cfg.hotkey.combo))
 
         cards = tk.Frame(self, bg=BG)
         cards.pack(fill="x", padx=16)
@@ -265,6 +295,30 @@ class HomePage(tk.Frame):
                 row, text=preview, bg=CARD, fg=FG, font=("Segoe UI", 9), anchor="w"
             ).pack(side="left", fill="x", expand=True)
             _button(row, "Copy", lambda text=e.get("injected", ""): self._copy(text), pady=0).pack(side="right")
+
+    def _build_guide_card(self, hotkey_label: str) -> None:
+        card = tk.Frame(self, bg=CARD, padx=14, pady=10)
+        card.pack(fill="x", padx=16, pady=(0, 10))
+        head = tk.Frame(card, bg=CARD)
+        head.pack(fill="x")
+        tk.Label(
+            head, text="👋 How to dictate", bg=CARD, fg=FG, font=("Segoe UI", 10, "bold")
+        ).pack(side="left")
+
+        def _dismiss() -> None:
+            dismiss_guide()
+            card.destroy()
+
+        _button(head, "Got it", _dismiss, pady=0).pack(side="right")
+        for gesture, what in guide_lines(hotkey_label):
+            row = tk.Frame(card, bg=CARD)
+            row.pack(fill="x", pady=(4, 0))
+            tk.Label(
+                row, text=gesture, bg=FIELD, fg=FG, font=("Segoe UI", 9, "bold"), padx=6, pady=1
+            ).pack(side="left")
+            tk.Label(
+                row, text="  " + what, bg=CARD, fg=FG_DIM, font=("Segoe UI", 9), anchor="w"
+            ).pack(side="left", fill="x", expand=True)
 
     def _copy(self, text: str) -> None:
         from whisperflow.inject import clipboard

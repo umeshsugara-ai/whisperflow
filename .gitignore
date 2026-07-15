@@ -28,6 +28,7 @@ logs/
 history.jsonl
 overlay_pos.txt
 .autostart_initialized
+.guide_dismissed
 stats.json
 config.toml.bak
 config.toml.tmp
