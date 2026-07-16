@@ -31,14 +31,26 @@ First run downloads the default model (`large-v3-turbo`, ~1.5GB) to the HuggingF
 
 ### Option A — the .exe installer (easiest, no Python needed)
 
-1. Download **`WhisperFlow-Setup.exe`** from the repo's [GitHub Releases](https://github.com/umeshsugara-ai/whisperflow/releases) page (you need collaborator access).
-2. Run it and click through the wizard — it asks about **start with Windows** and a **desktop shortcut**, then installs per-user (no admin needed).
+Two downloads on the [GitHub Releases](https://github.com/umeshsugara-ai/whisperflow/releases) page (you need collaborator access — it's private):
+
+- **`WhisperFlow-Setup.exe`** (~29MB) — cloud engines only (Groq/Gemini/OpenAI/Deepgram).
+  Pick this if you'll dictate via a free/paid cloud provider. Local mode can still be
+  turned on later from Settings — it downloads what it needs on first use — but that
+  first activation can take several minutes (antivirus scanning the freshly-downloaded
+  files) or occasionally get stuck, depending on your machine.
+- **`WhisperFlow-Full-Setup.exe`** (~1GB) — includes local (on-device) speech-to-text
+  out of the box, no extra download or wait on first use. Pick this if you know you
+  want fully private/offline dictation from the start.
+
+Either way:
+1. Run the installer and click through the wizard — it asks about **start with Windows** and a **desktop shortcut**, then installs per-user (no admin needed).
+2. **Windows may show a "Windows protected your PC" SmartScreen warning** the first time — this is normal for an app without a paid code-signing certificate, not a sign anything's wrong. Click **"More info" → "Run anyway"** to continue.
 3. Finish with "Launch WhisperFlow" checked. On first launch the app detects your hardware, generates its own config, and **downloads the speech model (~1.5GB, one-time)** — keep it open until the pill appears and dictation works.
-4. Settings, dictation history, and logs live in `%LOCALAPPDATA%\WhisperFlow`. To use the Gemini cloud engine, put `GEMINI_API_KEY=your-key` in a `.env` file in that folder.
+4. Settings, dictation history, and logs live in `%LOCALAPPDATA%\WhisperFlow`. To use a cloud engine, add its API key via Settings → Speech engine, or put e.g. `GROQ_API_KEY=your-key` in a `.env` file in that folder.
 
-Uninstall from Windows Settings → Apps; it asks whether to keep your history/settings.
+Uninstall from Windows Settings → Apps; it force-closes WhisperFlow first (no more "still running after uninstall" — fixed 2026-07-16) and asks whether to keep your history/settings.
 
-**Building the installer (maintainer):** install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run `powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1` for the slim cloud-base build (default, ~150MB) or `-Full` for the all-in-one build (~1GB) → `installer\Output\WhisperFlow-Setup.exe`. Build the local-inference pack separately with `-LocalPack` → `dist\whisperflow-local-pack-vX.Y.Z.zip` (+ `.sha256`) — publish both alongside the installer: `gh release upload vX.Y.Z installer\Output\WhisperFlow-Setup.exe dist\whisperflow-local-pack-vX.Y.Z.zip dist\whisperflow-local-pack-vX.Y.Z.zip.sha256`. Bump `PACK_VERSION` in `whisperflow/localpack.py` to match the release tag (and `installer/whisperflow.iss`'s `AppVersion`) whenever the pack's contents change.
+**Building the installers (maintainer):** install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run `powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1` for the cloud build (default, ~29MB) or `-Full` for the all-in-one build (~1GB) → both produce `installer\Output\WhisperFlow-Setup.exe` (rename the cloud one, or build+publish the Full one under a different asset name — `gh release upload` supports renaming via `asset#displayname`, e.g. `gh release upload vX.Y.Z installer\Output\WhisperFlow-Setup.exe#WhisperFlow-Full-Setup.exe` for the Full build). The on-demand local-inference pack (`-LocalPack`) still builds and self-heals correctly when antivirus doesn't interfere — see `docs/superpowers/specs/2026-07-15-cloud-stt-providers-design.md`'s Phase C "Outcome" note for why it's not the primary path.
 
 ### Option B — developer install (git clone)
 

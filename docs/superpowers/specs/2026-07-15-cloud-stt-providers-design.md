@@ -230,6 +230,33 @@ Tests: `localpack.is_installed/ensure_installed/activate` against a fake pack di
 (monkeypatched download); SHA mismatch aborts cleanly; `create_engine(local)` without
 pack raises the friendly guided error, not ImportError.
 
+**Outcome (2026-07-16, real smoke test on a live machine):** the risk materialized.
+All 6 code tasks shipped and were verified correct in isolation (140→177 tests, two
+whole-branch reviews each caught and fixed real integration bugs — an un-updated
+`.iss` referencing the wrong exe name, a pack missing `av`/`onnxruntime`, a silent
+startup crash instead of a visible error). The end-to-end smoke test (download real
+pack from a GitHub release → verify → extract → activate → load `ctranslate2` inside
+the frozen cloud-base exe) reproducibly hung for 5-10+ minutes at the exact step the
+spec flagged as risky — CPU idle, no error, `MpOav.dll` (Windows Defender's on-access
+scan filter) loaded into the process, consistent with Defender's cloud-reputation
+check stalling on multiple large freshly-extracted unsigned native DLLs. A real bug
+was found and fixed along the way (`activate()` only did `sys.path.insert()`, missing
+the `os.add_dll_directory()` a compiled extension needs to resolve its own dependent
+DLLs on Windows) and stayed in the code — it's a correct, necessary fix regardless —
+but the hang persisted identically after the fix, meaning Defender interaction (not
+purely the DLL-search-path bug) is the dominant cause, and that isn't something this
+codebase can control.
+**Decision: fall back to two static installer variants**, per this section's own
+pre-authorized escape hatch. `WhisperFlow-Setup.exe` (cloud, ~29MB — smaller than the
+~150MB estimate) is the default recommended download; `WhisperFlow-Full-Setup.exe`
+(~1GB, includes local inference, zero runtime native-load risk — this build path was
+already proven reliable in Phase 1-4 testing) is offered as the explicit second option
+for anyone who wants Local mode from first launch. The on-demand pack code stays in
+the repo (it self-heals correctly when Defender doesn't intervene, and the
+`os.add_dll_directory()` fix is real), but is no longer the promoted/primary path —
+README documents both installers side by side instead of promising automatic local
+mode on the cloud build.
+
 ## Config / data changes
 
 - `[model].engine` accepts any registry id (was `local|gemini`).
