@@ -48,6 +48,12 @@ class DeepgramEngine(SttEngine):
         if not self._api_key:
             raise RuntimeError("engine not loaded — call load() first")
 
+        # "hinglish" is WhisperFlow's own value — Deepgram rejects it. Its
+        # documented Hindi–English code-switching mode is language=multi
+        # (nova-2/nova-3); there is no prompt param to force Roman script.
+        if language.strip().lower() == "hinglish":
+            language = "multi"
+
         t0 = time.perf_counter()
         duration_s = len(audio) / SAMPLE_RATE
 

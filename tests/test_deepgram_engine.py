@@ -72,6 +72,38 @@ def test_transcribe_sends_token_auth_and_parses_response(monkeypatch):
     assert captured["body"].startswith(b"RIFF")  # raw WAV body, not multipart
 
 
+def test_transcribe_maps_hinglish_to_multi(monkeypatch):
+    # Deepgram rejects WhisperFlow's own "hinglish" value; its documented
+    # Hindi-English code-switching mode is language=multi (nova-2/nova-3).
+    engine = DeepgramEngine(cfg())
+    engine.load()
+
+    captured = {}
+
+    class FakeResponse:
+        def read(self):
+            return json.dumps(
+                {"results": {"channels": [{"alternatives": [{"transcript": "ok"}]}]}}
+            ).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=0):
+        captured["url"] = req.full_url
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    engine.transcribe(np.zeros(16000, dtype=np.float32), language="hinglish")
+
+    assert "language=multi" in captured["url"]
+    assert "hinglish" not in captured["url"]
+
+
 def test_transcribe_raises_readable_error_on_http_error(monkeypatch):
     import urllib.error
 

@@ -98,6 +98,43 @@ def test_transcribe_sends_bearer_auth_and_parses_text(monkeypatch):
     assert b"Vidysea" in captured["body"]
 
 
+def test_transcribe_maps_hinglish_to_hi_plus_roman_seed(monkeypatch):
+    # "hinglish" is WhisperFlow's own value: sent raw, Groq 400s with
+    # "unsupported language: hinglish" (live incident 2026-07-16). It must
+    # become language=hi + the Roman-script seed prompt, same as local whisper.
+    engine = OpenAICompatibleEngine(cfg())
+    engine.load()
+
+    captured = {}
+
+    class FakeResponse:
+        def read(self):
+            return json.dumps({"text": "kya haal hai"}).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=0):
+        captured["body"] = req.data
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = engine.transcribe(
+        np.zeros(16000, dtype=np.float32), language="hinglish", initial_prompt="Vidysea"
+    )
+
+    body = captured["body"].decode("utf-8", errors="replace")
+    assert "hinglish" not in body
+    assert 'name="language"\r\n\r\nhi\r\n' in body
+    assert "keh raha tha" in body  # HINGLISH_SEED fragment keeps output Roman
+    assert "Vidysea" in body  # user vocabulary survives the seed prepend
+    assert result.language == "hi"
+
+
 def test_transcribe_raises_readable_error_on_http_401(monkeypatch):
     import urllib.error
 

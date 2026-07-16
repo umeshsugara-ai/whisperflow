@@ -21,6 +21,7 @@ from whisperflow.config import ModelConfig
 
 from . import providers
 from .base import RawResult, SttEngine, check_upload_size, request_json
+from .faster_whisper_engine import resolve_language
 from .gemini_engine import SAMPLE_RATE, _float32_to_wav_bytes
 
 log = logging.getLogger(__name__)
@@ -83,6 +84,11 @@ class OpenAICompatibleEngine(SttEngine):
     ) -> RawResult:
         if not self._api_key:
             raise RuntimeError("engine not loaded — call load() first")
+
+        # "hinglish" is WhisperFlow's own value — whisper APIs reject it with a
+        # 400. Same mapping as the local engine: language "hi" + a Roman-script
+        # seed prompt, so whisper keeps the output in Latin script.
+        language, initial_prompt = resolve_language(language, initial_prompt)
 
         t0 = time.perf_counter()
         duration_s = len(audio) / SAMPLE_RATE
