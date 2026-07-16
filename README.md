@@ -1,6 +1,6 @@
 # WhisperFlow
 
-Free, fully-local voice dictation for Windows 11 — a Wispr Flow alternative with zero cloud, zero subscription, and a **non-destructive** cleanup pass (the raw transcript is always preserved).
+Free voice dictation for Windows 11 — a Wispr Flow alternative with zero subscription, bring-your-own-key speech engines (Groq is free), and a **non-destructive** cleanup pass (the raw transcript is always preserved).
 
 <p>
   <a href="https://github.com/umeshsugara-ai/whisperflow/releases/latest/download/WhisperFlow-Setup.exe"><b>⬇ Download for Windows</b></a>
@@ -8,9 +8,9 @@ Free, fully-local voice dictation for Windows 11 — a Wispr Flow alternative wi
   <a href="https://github.com/umeshsugara-ai/whisperflow/releases/latest">all releases</a>
 </p>
 
-> No Python, no git, no setup steps — run the installer, click through the wizard, done. First launch downloads the speech model (~1.5GB, one-time).
+> No Python, no git, no setup steps — run the installer, click through the wizard, done. First launch walks you through picking a speech engine (Groq is free, 30-second signup).
 
-Press your hotkey (**Ctrl+Win** by default, fully customizable), speak, and the text lands in whatever app has focus — browser, IDE, terminal, chat. Speech-to-text runs on your own GPU via [faster-whisper](https://github.com/SYSTRAN/faster-whisper); nothing ever leaves your machine.
+Press your hotkey (**Ctrl+Win** by default, fully customizable), speak, and the text lands in whatever app has focus — browser, IDE, terminal, chat. Speech-to-text goes through the cloud provider you pick (Groq / Gemini / OpenAI / Deepgram / NVIDIA — your own API key, audio only, never stored by WhisperFlow), or fully on-device via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) when running from source on a machine with a GPU.
 
 ## Quick start
 
@@ -31,7 +31,7 @@ First run downloads the default model (`large-v3-turbo`, ~1.5GB) to the HuggingF
 
 ### Option A — the .exe installer (easiest, no Python needed)
 
-Download **`WhisperFlow-Setup.exe`** (~29MB) from the [GitHub Releases](https://github.com/umeshsugara-ai/whisperflow/releases) page. This build covers cloud speech engines (Groq/Gemini/OpenAI/Deepgram) — local (on-device) mode isn't included right now.
+Download **`WhisperFlow-Setup.exe`** (~29MB) from the [GitHub Releases](https://github.com/umeshsugara-ai/whisperflow/releases) page. This build covers cloud speech engines (Groq/Gemini/OpenAI/Deepgram/NVIDIA) — local (on-device) mode isn't included right now.
 
 1. Run the installer and click through the wizard — it asks about **start with Windows** and a **desktop shortcut**, then installs per-user (no admin needed).
 2. **Windows may show a "Windows protected your PC" SmartScreen warning** the first time — this is normal for an app without a paid code-signing certificate, not a sign anything's wrong. Click **"More info" → "Run anyway"** to continue.
@@ -142,25 +142,24 @@ Change it anytime in **Settings → Speech engine**.
 
 | Engine | Privacy | Cost | Quality | Speed | Needs |
 |---|---|---|---|---|---|
-| **Local** | 🔒 Fully offline | Free | Best | Depends on your GPU | A decent NVIDIA GPU for good speed |
 | **Groq** | ☁ Cloud | Free — 2,000/day | Better | Instant | A free account (30 seconds to sign up) |
 | **Gemini** | ☁ Cloud | Free tier | Better | Fast | A free Google account |
 | **OpenAI** | ☁ Cloud | Paid (~$0.006/min) | Best | Fast | Billing set up on your OpenAI account |
 | **Deepgram** | ☁ Cloud | $200 free credit, then paid | Best | Fast | A free account to start |
+| **NVIDIA** | ☁ Cloud | Free credits on signup | Better | Fast | A free build.nvidia.com account |
+| **Local** | 🔒 Fully offline | Free | Best | Depends on your GPU | Running from source (developer install) with a decent NVIDIA GPU |
 
 **Quick picks:**
-- Good NVIDIA GPU and want everything to stay on your machine → **Local**.
-- No GPU, or your GPU is weak/shared with other apps → **Groq** (free, same
-  Whisper model as Local, but instant — this is what the app recommends for you
-  automatically if it doesn't find a good GPU).
+- Just want it to work for free → **Groq** (instant, free tier is generous —
+  this is what the app recommends automatically).
 - Want the best possible accuracy and don't mind paying a little → **OpenAI**
   or **Deepgram**.
+- Developer with a good NVIDIA GPU who wants everything to stay on the
+  machine → run from source (Option B) and pick **Local**.
 
-> **Install size:** the default installer only includes cloud engines
-> (~150MB). If you pick **Local**, WhisperFlow downloads a one-time
-> ~800MB local-inference pack automatically the first time you use it —
-> you'll see a status message while it downloads, same as the speech
-> model download.
+> **Install size:** the installer is ~29MB and includes only the cloud
+> engines. Local (on-device) inference isn't part of the installed build —
+> it works when running from source with `faster-whisper` installed.
 
 Each cloud option needs its own free (or paid) API key — the in-app chooser and
 Settings screen walk you through getting one with a direct sign-up link, or you
@@ -171,7 +170,7 @@ GROQ_API_KEY=paste-your-key-here
 
 ## Configuration — `config.toml`
 
-- **Engine**: `[model].engine = "local"` (default — fully on-device, private) or `"gemini"` — bring-your-own-key cloud transcription for machines that can't run a local model. Set your key in a `.env` file next to app.py (`GEMINI_API_KEY=...`, gitignored), via the `GEMINI_API_KEY` env var, or `[model].api_key`. Default cloud model `gemini-2.5-flash`; use `gemini-2.5-pro` for higher accuracy. **Privacy note:** the cloud engine sends dictation audio to Google — the app logs a clear notice when it's active. (TTS-named models like `gemini-2.5-pro-preview-tts` are text-to-speech and are rejected — they can't transcribe.)
+- **Engine**: `[model].engine` = `groq` | `gemini` | `openai` | `deepgram` | `nvidia` (cloud, bring-your-own-key) or `local` (fully on-device — from-source installs only). Each cloud provider reads its key from its own env var (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `NVIDIA_API_KEY`) — put it in a `.env` file next to your config, or set `[model].api_key`. Gemini's default cloud model is `gemini-2.5-flash-lite`; use `gemini-2.5-pro` for higher accuracy. **Privacy note:** cloud engines send dictation audio to that provider — the app logs a clear notice when one is active. (TTS-named models like `gemini-2.5-pro-preview-tts` are text-to-speech and are rejected — they can't transcribe.)
 - **Model swap**: set `[model].name` to `large-v3-turbo` (default), `large-v3` (best Hindi accuracy, slower), `medium`, `small`, or any raw HF CTranslate2 repo id.
 - **Hinglish**: if auto-detect keeps choosing the wrong language, set `[model].language = "hi"`.
 - **Cleanup tiers**: `off` = verbatim; `rules` = deterministic filler/punctuation cleanup (default); `llm` = local Ollama model (optional — install [Ollama](https://ollama.com) and `ollama pull qwen2.5:3b-instruct`). If Ollama is down, dictation silently degrades to `rules` — it never blocks.

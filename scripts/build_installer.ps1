@@ -8,15 +8,12 @@
 # frozen exe contains ONLY the app's real dependencies — building from a
 # global Python that has other packages installed produces a multi-GB dist.
 #
+# The single distributed build is cloud-only (~29MB installer): Groq, Gemini,
+# OpenAI, Deepgram, NVIDIA. Local (on-device) inference works only when
+# running from source with faster-whisper installed.
+#
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1              # default: slim cloud-base installer
-#   powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1 -Full        # full (~1GB) installer, local inference bundled
-#   powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1 -LocalPack   # zip the local-inference pack for a GitHub release
-
-param(
-    [switch]$Full,       # build the full (current, ~1GB) installer instead of the slim cloud one
-    [switch]$LocalPack   # build+zip the local-inference pack for a GitHub release, instead of the installer
-)
+#   powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
@@ -29,62 +26,9 @@ if (-not (Test-Path $python)) {
     if (-not (Test-Path $base)) { $base = "python.exe" }
     & $base -m venv "$repo\.venv-build"
 }
-# nvidia wheels = CUDA runtime DLLs bundled into the exe (GPU support)
-& $python -m pip install --quiet -r requirements.txt pyinstaller nvidia-cublas-cu12 nvidia-cudnn-cu12
+& $python -m pip install --quiet -r requirements.txt pyinstaller
 
-if ($LocalPack) {
-    Write-Output "== Building local-inference pack zip =="
-    $packVer = (Select-String -Path whisperflow\localpack.py -Pattern 'PACK_VERSION = "([^"]+)"').Matches[0].Groups[1].Value
-    $packStage = "$repo\build\local-pack-stage"
-    Remove-Item -Recurse -Force $packStage -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force $packStage | Out-Null
-
-    # Copy the SAME packages the "full" frozen build bundles, from the SAME
-    # venv — this is what makes the native .pyd ABI-compatible with a
-    # WF_BUILD=cloud exe built from this same venv.
-    $sitePkgs = "$repo\.venv-build\Lib\site-packages"
-    foreach ($pkg in @("faster_whisper", "ctranslate2", "tokenizers", "nvidia", "av", "onnxruntime")) {
-        $src = "$sitePkgs\$pkg"
-        if (Test-Path $src) { Copy-Item -Recurse $src "$packStage\$pkg" }
-    }
-    # Drop the same CUDA DLLs whisperflow.spec's "full" build excludes —
-    # verified unused by ctranslate2's whisper pipeline (see spec's own
-    # _CUDA_SKIP comment): saves ~865MB and this many fewer/smaller large
-    # binaries also noticeably speeds up antivirus on-access scanning the
-    # first time a client activates a freshly-downloaded pack.
-    $cudaSkip = @("cudnn_engines_precompiled", "cudnn_adv", ".alt.", "nvblas")
-    Get-ChildItem "$packStage\nvidia" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue |
-        Where-Object { $name = $_.Name; $cudaSkip | Where-Object { $name -match [regex]::Escape($_) } } |
-        Remove-Item -Force
-
-    # Validate that all required packages were staged successfully
-    $expectedPkgs = @("faster_whisper", "ctranslate2", "tokenizers", "nvidia", "av", "onnxruntime")
-    $missing = @()
-    foreach ($pkg in $expectedPkgs) {
-        $stagedPath = "$packStage\$pkg"
-        if (-not (Test-Path $stagedPath)) {
-            $missing += $pkg
-        }
-    }
-    if ($missing.Count -gt 0) {
-        Write-Error "Local-pack staging failed: missing package(s): $($missing -join ', ')"
-    }
-
-    $zipPath = "$repo\dist\whisperflow-local-pack-v$packVer.zip"
-    Remove-Item -Force $zipPath -ErrorAction SilentlyContinue
-    Compress-Archive -Path "$packStage\*" -DestinationPath $zipPath
-    $sha = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
-    Set-Content -Path "$zipPath.sha256" -Value $sha -NoNewline -Encoding ascii
-
-    $mb = [math]::Round((Get-Item $zipPath).Length / 1MB)
-    Write-Output ""
-    Write-Output "DONE: $zipPath ($mb MB), sha256=$sha"
-    Write-Output "Publish both files as release assets: gh release upload vX.Y.Z `"$zipPath`" `"$zipPath.sha256`""
-    exit 0
-}
-
-$env:WF_BUILD = if ($Full) { "full" } else { "cloud" }
-Write-Output "== 1/2 PyInstaller freeze (WF_BUILD=$env:WF_BUILD) =="
+Write-Output "== 1/2 PyInstaller freeze =="
 & $python -m PyInstaller installer\whisperflow.spec --noconfirm --distpath dist --workpath build
 $exeName = "WhisperFlow"
 if (-not (Test-Path "$repo\dist\$exeName\$exeName.exe")) {

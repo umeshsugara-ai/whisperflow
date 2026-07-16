@@ -3,7 +3,8 @@
 
 [model]
 # Not sure what fits your machine? Run:  python app.py --recommend
-engine = "local"           # local (fully on-device, private) | gemini (BYOK cloud — audio goes to Google)
+engine = "local"           # local (fully on-device, private; from-source installs) | any cloud provider
+                           # (groq | gemini | openai | deepgram | nvidia — BYOK, audio leaves the machine)
 
 # --- local engine ---
 # Registry names: large-v3-turbo | large-v3 | medium | small
@@ -16,7 +17,7 @@ vad = true
 language = "hinglish"      # "" = auto-detect | "en" | "hi" (Devanagari output) |
                            # "hinglish" = Roman-script Hindi+English mix ("kya tum sun rahe ho")
 
-# --- cloud engine (only when engine = "gemini"; bring your own key) ---
+# --- cloud engine (only when engine is a cloud provider; bring your own key) ---
 cloud_model = "gemini-2.5-flash-lite"   # audio-input model; gemini-2.5-pro for higher accuracy
 api_key = ""                        # prefer the env var below instead of pasting a key here
 api_key_env = "GEMINI_API_KEY"      # env var read when api_key is empty

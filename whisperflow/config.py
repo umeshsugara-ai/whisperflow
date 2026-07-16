@@ -360,7 +360,7 @@ def serialize_config(cfg: Config) -> str:
 [model]
 # Not sure what fits your machine? Run:  python app.py --recommend
 engine = {t(m.engine)}           # local (fully on-device, private) | any registered cloud provider
-                           # (groq | gemini | openai | deepgram — BYOK, audio leaves the machine)
+                           # (groq | gemini | openai | deepgram | nvidia — BYOK, audio leaves the machine)
 
 # --- local engine ---
 # Registry names: large-v3-turbo | large-v3 | medium | small

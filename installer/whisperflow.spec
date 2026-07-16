@@ -3,47 +3,17 @@
 # Build:  python -m PyInstaller installer/whisperflow.spec --noconfirm
 # Output: dist/WhisperFlow/WhisperFlow.exe  (onedir — faster startup than
 # onefile and DLL problems are debuggable by looking in the folder)
+#
+# The distributed build is cloud-only (Groq / Gemini / OpenAI / Deepgram /
+# NVIDIA over plain HTTPS): local inference deps (faster_whisper,
+# ctranslate2, CUDA) are excluded, keeping the installer ~29MB. Local
+# (on-device) mode works only when running from source.
 
 import os
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
-
 REPO = os.path.dirname(SPECPATH)  # spec lives in installer/, repo is one up
 
-WF_BUILD = os.environ.get("WF_BUILD", "full")  # "cloud" (slim) or "full" (default, current behavior)
-if WF_BUILD not in ("cloud", "full"):
-    raise SystemExit(f"WF_BUILD must be 'cloud' or 'full', got {WF_BUILD!r}")
-
 datas = [(os.path.join(REPO, "assets", "app.ico"), "assets")]
-if WF_BUILD == "full":
-    # faster-whisper bundles the silero VAD onnx model as package data
-    datas += collect_data_files("faster_whisper")
-
-binaries = []
-if WF_BUILD == "full":
-    binaries += collect_dynamic_libs("ctranslate2")
-    binaries += collect_dynamic_libs("onnxruntime")
-
-    # CUDA runtime for ctranslate2 GPU inference (cublas + cudnn). These come from
-    # the nvidia-cublas-cu12 / nvidia-cudnn-cu12 pip wheels in the build venv —
-    # without them the frozen app dies with "cublas64_12.dll is not found".
-    # On CPU-only machines the DLLs are simply never loaded.
-    # Skipped (verified unused by ctranslate2's whisper pipeline on 2026-07-15 —
-    # smoke test reaches encode/decode fine without them; saves ~865MB):
-    #   cudnn_engines_precompiled (graph-API fusion engines), cudnn_adv (RNN ops),
-    #   *.alt.dll (old-driver nvrtc variant), nvblas (BLAS drop-in shim)
-    _CUDA_SKIP = ("cudnn_engines_precompiled", "cudnn_adv", ".alt.", "nvblas")
-    try:
-        import glob
-
-        import nvidia
-
-        for _base in nvidia.__path__:
-            for _dll in glob.glob(os.path.join(_base, "*", "bin", "*.dll")):
-                if not any(s in os.path.basename(_dll) for s in _CUDA_SKIP):
-                    binaries.append((_dll, "."))
-    except ImportError:
-        print("WARNING: nvidia CUDA wheels not installed — frozen build will be CPU-only")
 
 hiddenimports = [
     "pystray._win32",
@@ -58,21 +28,24 @@ hiddenimports = [
     "whisperflow.stt.gemini_engine",
     "whisperflow.stt.openai_compatible_engine",
     "whisperflow.stt.deepgram_engine",
+    "whisperflow.stt.nvidia_engine",
     "whisperflow.stt.faster_whisper_engine",
 ]
 
 a = Analysis(
     [os.path.join(REPO, "app.py")],
     pathex=[REPO],
-    binaries=binaries,
+    binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["pytest"] + ([] if WF_BUILD == "full" else [
+    excludes=[
+        "pytest",
+        # local-inference deps — never bundled in the distributed build
         "ctranslate2", "faster_whisper", "onnxruntime", "nvidia",
-        "torch", "tokenizers",  # transitive faster_whisper/ctranslate2 deps
-    ]),
+        "torch", "tokenizers",
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

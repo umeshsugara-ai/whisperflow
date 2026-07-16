@@ -55,33 +55,3 @@ def test_bootstrap_config_wires_api_key_env_for_recommended_cloud_provider(tmp_p
 
     reloaded = load_config(cfg_path)
     assert reloaded.model.api_key_env == "GROQ_API_KEY"
-
-
-def test_local_pack_needs_download_false_for_cloud_engine():
-    import app
-    from whisperflow.config import ModelConfig
-
-    assert app._local_pack_needs_download(ModelConfig(engine="groq")) is False
-
-
-def test_local_pack_needs_download_false_when_faster_whisper_importable(monkeypatch):
-    import app
-
-    # real dev/test environment — faster_whisper IS a project dependency,
-    # so this exercises the actual "already available" branch.
-    from whisperflow.config import ModelConfig
-
-    assert app._local_pack_needs_download(ModelConfig(engine="local")) is False
-
-
-def test_local_pack_needs_download_true_when_not_importable_and_pack_missing(monkeypatch):
-    import app
-    from whisperflow.config import ModelConfig
-    from whisperflow.stt import registry
-
-    def fake_import():
-        raise ImportError("simulated")
-
-    monkeypatch.setattr(registry, "_try_import_faster_whisper", fake_import)
-    monkeypatch.setattr("whisperflow.localpack.is_installed", lambda: False)
-    assert app._local_pack_needs_download(ModelConfig(engine="local")) is True

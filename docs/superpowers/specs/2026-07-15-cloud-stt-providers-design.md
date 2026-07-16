@@ -251,11 +251,15 @@ pre-authorized escape hatch. `WhisperFlow-Setup.exe` (cloud, ~29MB — smaller t
 ~150MB estimate) is the default recommended download; `WhisperFlow-Full-Setup.exe`
 (~1GB, includes local inference, zero runtime native-load risk — this build path was
 already proven reliable in Phase 1-4 testing) is offered as the explicit second option
-for anyone who wants Local mode from first launch. The on-demand pack code stays in
-the repo (it self-heals correctly when Defender doesn't intervene, and the
-`os.add_dll_directory()` fix is real), but is no longer the promoted/primary path —
-README documents both installers side by side instead of promising automatic local
-mode on the cloud build.
+for anyone who wants Local mode from first launch.
+
+**Final outcome (2026-07-16, later the same day):** Umesh decided to drop the Full
+installer entirely — `WhisperFlow-Setup.exe` (cloud-only, ~29MB) is the **single**
+distributed build. The Full-Setup exe and the local-pack zip were deleted from the
+GitHub release; `localpack.py` (whose download URL pointed at the deleted asset),
+its tests, and the `-Full`/`-LocalPack` build-script paths were removed from the
+repo. Local (on-device) mode remains available only when running from source with
+faster-whisper installed, and the engine picker gates it honestly on cloud installs.
 
 ## Config / data changes
 

@@ -1,8 +1,8 @@
 """WhisperFlow entry point.
 
-Loads config -> loads the STT model once (held in VRAM) -> starts the hotkey
-listener + controller worker. Run with --headless for the no-UI pipeline
-(tray + overlay wiring arrives with the UI milestone).
+Loads config -> creates the STT engine once (local model held in VRAM, or a
+cloud provider client) -> starts the hotkey listener + controller worker +
+tray/overlay/main-window UI. Run with --headless for the no-UI pipeline.
 
     python app.py --headless
 """
@@ -118,24 +118,6 @@ def _model_needs_download(model_cfg) -> bool:
     return not (cache / ("models--" + repo.replace("/", "--"))).exists()
 
 
-def _local_pack_needs_download(model_cfg) -> bool:
-    """True when engine="local" but faster_whisper isn't importable AND the
-    on-demand pack hasn't been downloaded yet (WF_BUILD=cloud installs only
-    — a no-op check on a dev checkout or a WF_BUILD=full build)."""
-    if model_cfg.engine != "local":
-        return False
-    from whisperflow.stt import registry
-
-    try:
-        registry._try_import_faster_whisper()
-        return False
-    except ImportError:
-        pass
-    from whisperflow import localpack
-
-    return not localpack.is_installed()
-
-
 def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
     if _model_needs_download(cfg.model):
         # WARNING so it also lands on the main window's Home status strip
@@ -143,11 +125,6 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
             "Downloading the speech model %r (~1.5GB) — first run only, "
             "please keep the app open; dictation starts when it finishes.",
             cfg.model.name,
-        )
-    if _local_pack_needs_download(cfg.model):
-        log.warning(
-            "Local (on-device) mode isn't set up on this install (needs a one-time "
-            "~800MB download) — startup will offer to switch engines."
         )
     engine = create_engine(cfg.model)
     engine.load()
