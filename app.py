@@ -518,14 +518,37 @@ def main() -> int:
         if args.headless:
             raise
         import tkinter as tk
-        from tkinter import messagebox
 
         root = first_run_root if first_run_root is not None else tk.Tk()
         if first_run_root is None:
             root.withdraw()
-        messagebox.showerror("WhisperFlow — startup failed", str(exc), parent=root)
-        root.destroy()
-        return 1
+
+        # A saved engine that isn't available on this build (e.g. "local" on
+        # a cloud-only install with no pack yet) must never be a dead end —
+        # let the user pick another engine right now instead of just dying.
+        # Reuses the first-run chooser as a recovery UI; it saves whatever
+        # the user picks, so this also satisfies "a setup-time choice always
+        # updates the saved config" (existing unrelated settings untouched).
+        from whisperflow.ui.first_run import show_first_run_chooser
+
+        log.warning(
+            "saved engine %r isn't available on this build — opening the engine "
+            "picker so you can choose another",
+            cfg.model.engine,
+        )
+        specs = sysinfo.probe()
+        rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available())
+        cfg = show_first_run_chooser(root, specs, rec, cfg_path)
+        try:
+            ctl, listener, history = build_controller(cfg)
+        except RuntimeError as exc2:
+            log.error("startup still failed after re-picking engine: %s", exc2)
+            from tkinter import messagebox
+
+            messagebox.showerror("WhisperFlow — startup failed", str(exc2), parent=root)
+            root.destroy()
+            return 1
+        first_run_root = root
 
     if args.headless:
         return run_headless(cfg, ctl, listener)
