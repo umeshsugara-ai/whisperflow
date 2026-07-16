@@ -22,7 +22,7 @@ if sys.stdout:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from whisperflow.audio import Recorder
-from whisperflow.config import DEFAULT_CONFIG_PATH, data_dir, load_config, load_dotenv
+from whisperflow.config import DEFAULT_CONFIG_PATH, data_dir, load_config, load_dotenv, save_config
 from whisperflow.controller import Controller, DictationResult, State
 from whisperflow.dictionary import vocabulary_prompt
 from whisperflow.history import History
@@ -271,19 +271,35 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
 
     applied_model = {"snapshot": _model_snapshot()}
 
-    def _swap_engine() -> None:
+    def _swap_engine(prev_snapshot: tuple | None) -> None:
         """Build + load the newly-configured engine in the background, then
         swap it into the running controller — an engine change in Settings
-        applies immediately (VS Code-style), no app restart. On failure the
-        old engine keeps working and the pill shows why."""
+        applies immediately (VS Code-style), no app restart. On failure
+        (typo'd custom model id, dead key, network down) the old engine
+        keeps working AND the saved config is reverted to the last working
+        model, so the app never boots into a broken engine next launch."""
         try:
             new_engine = create_engine(cfg.model)
             new_engine.load()
-            warmup(new_engine)
+            warmup(new_engine)  # a real 0.5s request — a nonexistent model fails HERE
         except Exception as exc:  # noqa: BLE001 — must never kill the running app
             log.error("live engine switch failed: %s", exc)
-            applied_model["snapshot"] = None  # retry on the next save
             overlay.post(overlay.flash_error, f"Engine switch failed: {exc}")
+            if prev_snapshot is not None:
+                m = cfg.model
+                (m.engine, m.cloud_model, m.api_key_env, m.api_key,
+                 m.name, m.device, m.compute_type) = prev_snapshot
+                applied_model["snapshot"] = prev_snapshot
+                try:
+                    save_config(cfg, cfg.path)
+                    log.warning(
+                        "saved config reverted to the previous working engine/model "
+                        "(%s / %s)", m.engine, m.cloud_model if m.engine != "local" else m.name,
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("could not revert the saved config")
+            else:
+                applied_model["snapshot"] = None  # retry on the next save
             return
         ctl.engine = new_engine
         shown = cfg.model.cloud_model if cfg.model.engine != "local" else cfg.model.name
@@ -303,8 +319,11 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)
         new_snapshot = _model_snapshot()
         if new_snapshot != applied_model["snapshot"]:
+            prev_snapshot = applied_model["snapshot"]
             applied_model["snapshot"] = new_snapshot
-            threading.Thread(target=_swap_engine, daemon=True, name="wf-engine-swap").start()
+            threading.Thread(
+                target=_swap_engine, args=(prev_snapshot,), daemon=True, name="wf-engine-swap"
+            ).start()
             # _swap_engine's own flash shows the outcome; skip show_idle so
             # it isn't immediately overwritten
         elif ctl.state is State.IDLE:  # don't disturb an active recording UI
