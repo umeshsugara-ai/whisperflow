@@ -497,19 +497,37 @@ class SettingsPage(tk.Frame):
         super().__init__(parent, bg=BG)
         self.cfg = cfg
         self.persist = persist
-        # values at app launch — changing these needs a restart to take effect
-        self._launch_combo = cfg.hotkey.combo
-        self._launch_language = cfg.model.language
-        self._launch_engine = cfg.model.engine
-
-        tk.Label(self, text="Settings", bg=BG, fg=FG, font=("Segoe UI", 14, "bold")).pack(
-            anchor="w", padx=16, pady=(14, 10)
-        )
 
         style = ttk.Style(self)
         style.configure("WF.TCombobox", fieldbackground=FIELD, background=BTN, foreground=FG)
 
-        body = tk.Frame(self, bg=BG)
+        # The Speech-engine section (key steps, validation status) can run
+        # taller than the window — the whole page scrolls so nothing is ever
+        # cut off un-reachably. The Save row + model line stay pinned below.
+        scroll_area = tk.Frame(self, bg=BG)
+        scroll_area.pack(side="top", fill="both", expand=True)
+        canvas = tk.Canvas(scroll_area, bg=BG, highlightthickness=0)
+        scrollbar = tk.Scrollbar(scroll_area, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        page = tk.Frame(canvas, bg=BG)
+        page_window = canvas.create_window((0, 0), window=page, anchor="nw")
+        page.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(page_window, width=e.width))
+
+        def _on_mousewheel(event) -> None:
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        # scoped to hover so the global wheel binding never leaks to other pages
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        tk.Label(page, text="Settings", bg=BG, fg=FG, font=("Segoe UI", 14, "bold")).pack(
+            anchor="w", padx=16, pady=(14, 10)
+        )
+
+        body = tk.Frame(page, bg=BG)
         body.pack(fill="x", padx=16)
         body.columnconfigure(1, weight=1)
 
@@ -532,13 +550,13 @@ class SettingsPage(tk.Frame):
             combos.insert(0, cfg.hotkey.combo)
         self.hotkey_var = tk.StringVar()
         ttk.Combobox(
-            row(0, "Hotkey", "Takes effect after restart. Avoid alt+space (Windows system menu)."),
+            row(0, "Hotkey", "Applies immediately on Save. Avoid alt+space (Windows system menu)."),
             textvariable=self.hotkey_var, values=combos, state="readonly", width=24,
         ).pack(anchor="w")
 
         self.language_var = tk.StringVar()
         ttk.Combobox(
-            row(2, "Language", "Takes effect after restart. Hinglish = Roman-script Hindi + English mix."),
+            row(2, "Language", "Applies immediately on Save. Hinglish = Roman-script Hindi + English mix."),
             textvariable=self.language_var,
             values=[label for label, _ in LANGUAGE_CHOICES],
             state="readonly", width=32,
@@ -576,7 +594,7 @@ class SettingsPage(tk.Frame):
 
         self._engine_recommended_id = None  # set lazily in refresh() via sysinfo.recommend()
         self._local_available = True  # set lazily in refresh() — False on a cloud-only build
-        engine_holder = row(10, "Speech engine", "Changing engine takes effect after restart.")
+        engine_holder = row(10, "Speech engine", "Applies immediately on Save — switches in the background, no restart.")
         # dropdown shows friendly display names; map both ways to config ids
         self._engine_id_by_label = {p.display_name: p.id for p in _stt_providers.all_providers()}
         self._engine_label_by_id = {v: k for k, v in self._engine_id_by_label.items()}
@@ -609,11 +627,6 @@ class SettingsPage(tk.Frame):
         self._status = tk.Label(foot, text="", bg=BG, fg=ACCENT_OK, font=("Segoe UI", 9))
         self._status.pack(side="left", padx=10)
 
-        self._banner = tk.Label(
-            self, text="", bg=BG, fg=ACCENT_WARN, font=("Segoe UI", 9), wraplength=640, justify="left"
-        )
-        self._banner.pack(anchor="w", padx=16)
-
         adv = tk.Frame(self, bg=BG)
         adv.pack(side="bottom", fill="x", padx=16, pady=12)
         self._model_line = tk.Label(adv, text="", bg=BG, fg=FG_DIM, font=("Segoe UI", 8))
@@ -636,7 +649,6 @@ class SettingsPage(tk.Frame):
             + (f" on {m.device}" if m.engine == "local" else "")
             + "  —  advanced settings live in the config file"
         )
-        self._update_banner()
         if self._engine_recommended_id is None:
             from whisperflow.stt import registry
 
@@ -753,23 +765,6 @@ class SettingsPage(tk.Frame):
         except OSError as exc:
             self._status.config(text=f"Autostart failed: {exc}", fg=ACCENT_ERR)
 
-    def _update_banner(self) -> None:
-        pending = []
-        if self.cfg.hotkey.combo != self._launch_combo:
-            pending.append(f"hotkey ({format_hotkey_label(self.cfg.hotkey.combo)})")
-        if self.cfg.model.language != self._launch_language:
-            pending.append("language")
-        if self.cfg.model.engine != self._launch_engine:
-            pending.append("speech engine")
-        if pending:
-            self._banner.config(
-                text="⚠ Restart WhisperFlow to apply the new "
-                + " and ".join(pending)
-                + " (tray → Quit, then reopen)."
-            )
-        else:
-            self._banner.config(text="")
-
     def _save(self) -> None:
         old = (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
                self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
@@ -812,9 +807,8 @@ class SettingsPage(tk.Frame):
              self.cfg.model.device, self.cfg.model.compute_type) = old
             self._status.config(text=str(exc), fg=ACCENT_ERR)
             return
-        self._status.config(text="Saved ✓", fg=ACCENT_OK)
+        self._status.config(text="Saved ✓ — applied", fg=ACCENT_OK)
         self.after(1500, lambda: self._status.config(text=""))
-        self._update_banner()
 
     def _open_logs(self) -> None:
         logs = self.cfg.path.parent / "logs"

@@ -265,14 +265,49 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
     def on_tier_change(tier: str) -> None:
         rebuild_processor()
 
+    def _model_snapshot() -> tuple:
+        m = cfg.model
+        return (m.engine, m.cloud_model, m.api_key_env, m.api_key, m.name, m.device, m.compute_type)
+
+    applied_model = {"snapshot": _model_snapshot()}
+
+    def _swap_engine() -> None:
+        """Build + load the newly-configured engine in the background, then
+        swap it into the running controller — an engine change in Settings
+        applies immediately (VS Code-style), no app restart. On failure the
+        old engine keeps working and the pill shows why."""
+        try:
+            new_engine = create_engine(cfg.model)
+            new_engine.load()
+            warmup(new_engine)
+        except Exception as exc:  # noqa: BLE001 — must never kill the running app
+            log.error("live engine switch failed: %s", exc)
+            applied_model["snapshot"] = None  # retry on the next save
+            overlay.post(overlay.flash_error, f"Engine switch failed: {exc}")
+            return
+        ctl.engine = new_engine
+        shown = cfg.model.cloud_model if cfg.model.engine != "local" else cfg.model.name
+        log.info("engine switched live to %s (%s)", cfg.model.engine, shown)
+        overlay.post(overlay.flash_done, f"Engine: {cfg.model.engine} ✓")
+
     def apply_live() -> None:
-        """Apply the live-appliable parts of cfg (after a Settings save or a
-        file reload). Model/hotkey changes still need a restart."""
+        """Apply cfg after a Settings save or a file reload — everything the
+        Settings screen exposes applies immediately: cleanup, dictionary,
+        overlay, hotkey (listener rebind), language, and the speech engine
+        itself (background load + hot swap)."""
         rebuild_processor()
         ctl.initial_prompt = vocabulary_prompt(cfg.dictionary)
+        ctl.language = cfg.model.language
+        listener.rebind(cfg.hotkey.combo)
         overlay.persistent = cfg.overlay.always_visible
         overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)
-        if ctl.state is State.IDLE:  # don't disturb an active recording UI
+        new_snapshot = _model_snapshot()
+        if new_snapshot != applied_model["snapshot"]:
+            applied_model["snapshot"] = new_snapshot
+            threading.Thread(target=_swap_engine, daemon=True, name="wf-engine-swap").start()
+            # _swap_engine's own flash shows the outcome; skip show_idle so
+            # it isn't immediately overwritten
+        elif ctl.state is State.IDLE:  # don't disturb an active recording UI
             root.after(0, overlay.show_idle)
 
     def on_reload_config() -> None:
@@ -282,14 +317,15 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
             log.error("config reload failed: %s", exc)
             overlay.post(overlay.flash_error, f"Config error: {exc}")
             return
-        # live-applicable settings (model/device changes need a restart)
         cfg.cleanup = fresh.cleanup
         cfg.inject = fresh.inject
         cfg.dictionary = fresh.dictionary
         cfg.audio = fresh.audio
         cfg.overlay = fresh.overlay
+        cfg.hotkey = fresh.hotkey
+        cfg.model = fresh.model
         apply_live()
-        log.info("config reloaded (model/hotkey changes need restart)")
+        log.info("config reloaded (hotkey/engine changes applied live)")
 
     def on_quit() -> None:
         root.after(0, root.quit)

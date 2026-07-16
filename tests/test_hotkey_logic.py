@@ -153,3 +153,23 @@ def test_hold_to_talk_still_works_with_double_tap_enabled():
     t = 400.0
     assert sm.combo_down(t) == HotkeyEvent.RECORD_START
     assert sm.combo_up(t + 1.2) == HotkeyEvent.RECORD_STOP  # held -> push-to-talk
+
+
+# ---- HotkeyListener.rebind (live combo swap, no keyboard hook needed) ----
+
+
+def test_listener_rebind_swaps_combo_and_resets_chord_state():
+    from whisperflow.hotkey import HotkeyListener
+
+    listener = HotkeyListener("ctrl+windows", tap_threshold_ms=350, on_event=lambda e: None)
+    assert listener._keys == ["ctrl", "windows"]
+    # simulate a half-pressed chord at the moment of the swap
+    listener._down_keys.add("ctrl")
+    listener._combo_active = True
+
+    listener.rebind("alt+windows")
+
+    assert listener.combo == "alt+windows"
+    assert listener._keys == ["alt", "windows"]
+    assert listener._down_keys == set()  # stale chord state must not leak
+    assert listener._combo_active is False

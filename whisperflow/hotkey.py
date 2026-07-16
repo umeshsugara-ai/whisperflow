@@ -209,6 +209,17 @@ class HotkeyListener:
                     self._combo_active = False
                     self._emit(self.sm.combo_up(now))
 
+    def rebind(self, combo: str) -> None:
+        """Live-swap the combo (Settings saves apply immediately, no restart).
+        The keyboard hook itself is combo-agnostic — only the key set the
+        handler matches against changes, so no unhook/rehook is needed."""
+        with self._lock:
+            self.combo = combo
+            self._keys = [k.strip().lower() for k in combo.split("+") if k.strip()]
+            self._down_keys.clear()
+            self._combo_active = False
+        log.info("hotkey listener rebound: combo=%s", combo)
+
     def start(self) -> None:
         import keyboard as kb
 
