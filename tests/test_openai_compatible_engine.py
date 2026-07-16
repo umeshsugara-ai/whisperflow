@@ -90,6 +90,10 @@ def test_transcribe_sends_bearer_auth_and_parses_text(monkeypatch):
     assert result.duration_s == 2.0
     assert captured["url"] == "https://api.groq.com/openai/v1/audio/transcriptions"
     assert captured["headers"].get("Authorization") == "Bearer test-groq-key"
+    # a default urllib User-Agent ("Python-urllib/3.x") gets blocked by
+    # Cloudflare-fronted APIs (Groq included) as bot traffic — a real UA
+    # must be sent, or every Groq request 403s regardless of a valid key.
+    assert "python-urllib" not in captured["headers"].get("User-agent", "").lower()
     assert b"whisper-large-v3-turbo" in captured["body"]
     assert b"Vidysea" in captured["body"]
 

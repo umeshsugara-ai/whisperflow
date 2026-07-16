@@ -109,6 +109,11 @@ class OpenAICompatibleEngine(SttEngine):
             headers={
                 "Content-Type": content_type,
                 "Authorization": f"Bearer {self._api_key}",
+                # urllib's default UA ("Python-urllib/3.x") is a well-known
+                # bot signature that Cloudflare-fronted APIs (Groq included)
+                # block outright — surfaces as a generic 403 with no useful
+                # detail, easily mistaken for a bad key. A real UA fixes it.
+                "User-Agent": "WhisperFlow/1.0",
             },
         )
         try:

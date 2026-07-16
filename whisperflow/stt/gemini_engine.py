@@ -124,6 +124,9 @@ class GeminiEngine(SttEngine):
             headers={
                 "Content-Type": "application/json",
                 "x-goog-api-key": self._api_key,
+                # see openai_compatible_engine.py — urllib's default UA gets
+                # blocked by Cloudflare-fronted APIs as bot traffic.
+                "User-Agent": "WhisperFlow/1.0",
             },
         )
         try:

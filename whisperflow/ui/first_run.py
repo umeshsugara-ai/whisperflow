@@ -50,7 +50,8 @@ def show_first_run_chooser(root, specs, rec, path):
 
     win = tk.Toplevel(root)
     win.title("Welcome to WhisperFlow")
-    win.geometry("560x520")
+    win.geometry("560x560")
+    win.minsize(480, 380)
     win.configure(bg=BG)
     win.grab_set()  # modal — block interaction with anything else until resolved
 
@@ -89,8 +90,35 @@ def show_first_run_chooser(root, specs, rec, path):
         anchor="w", padx=18, pady=(4, 4)
     )
 
-    list_frame = tk.Frame(win, bg=BG)
-    list_frame.pack(fill="both", expand=True, padx=18)
+    # The provider list (and the key-entry step that replaces it) can run
+    # taller than the window — e.g. 4+ cloud providers each with a badge and
+    # button. Wrap it in a scrollable canvas so nothing is ever cut off
+    # un-reachably (the earlier fixed-height version hid Deepgram's row).
+    canvas_area = tk.Frame(win, bg=BG)
+    canvas_area.pack(fill="both", expand=True, padx=(18, 0), pady=(0, 12))
+    list_canvas = tk.Canvas(canvas_area, bg=BG, highlightthickness=0)
+    list_scrollbar = tk.Scrollbar(canvas_area, orient="vertical", command=list_canvas.yview)
+    list_canvas.configure(yscrollcommand=list_scrollbar.set)
+    list_canvas.pack(side="left", fill="both", expand=True)
+    list_scrollbar.pack(side="right", fill="y", padx=(4, 18))
+
+    list_frame = tk.Frame(list_canvas, bg=BG)
+    list_frame_window = list_canvas.create_window((0, 0), window=list_frame, anchor="nw")
+    list_frame.bind(
+        "<Configure>", lambda e: list_canvas.configure(scrollregion=list_canvas.bbox("all"))
+    )
+    list_canvas.bind(
+        "<Configure>", lambda e: list_canvas.itemconfig(list_frame_window, width=e.width)
+    )
+
+    def _on_mousewheel(event) -> None:
+        list_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    # Scope the wheel binding to only-while-hovering-this-canvas — bind_all
+    # would leak a global mousewheel handler into the rest of the app (main
+    # window, Settings) that never gets cleaned up after this dialog closes.
+    list_canvas.bind("<Enter>", lambda e: list_canvas.bind_all("<MouseWheel>", _on_mousewheel))
+    list_canvas.bind("<Leave>", lambda e: list_canvas.unbind_all("<MouseWheel>"))
 
     def _pick(provider_id: str) -> None:
         provider = get(provider_id)

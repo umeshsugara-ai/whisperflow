@@ -80,6 +80,7 @@ def test_transcribe_parses_response(monkeypatch):
     assert result.duration_s == 2.0
     assert "gemini-2.5-flash-lite" in captured["url"]
     assert captured["headers"].get("X-goog-api-key") == "test-key-123"
+    assert "python-urllib" not in captured["headers"].get("User-agent", "").lower()
     prompt_text = captured["body"]["contents"][0]["parts"][0]["text"]
     assert "VERBATIM" in prompt_text
     assert "'hi'" in prompt_text  # language hint forwarded

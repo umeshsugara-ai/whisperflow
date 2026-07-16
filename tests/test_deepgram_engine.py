@@ -68,6 +68,7 @@ def test_transcribe_sends_token_auth_and_parses_response(monkeypatch):
     assert result.duration_s == 1.0
     assert "nova-3" in captured["url"]
     assert captured["headers"].get("Authorization") == "Token test-dg-key"
+    assert "python-urllib" not in captured["headers"].get("User-agent", "").lower()
     assert captured["body"].startswith(b"RIFF")  # raw WAV body, not multipart
 
 
