@@ -45,29 +45,29 @@ def _try_import_faster_whisper() -> None:
 
 def _ensure_local_available() -> None:
     """No-op on a dev checkout or WF_BUILD=full frozen build, where
-    faster_whisper is already importable. Falls back to the on-demand
-    local-inference pack only when it isn't (a WF_BUILD=cloud build) —
-    downloading it synchronously on first use if needed."""
+    faster_whisper is already importable. On a WF_BUILD=cloud build with no
+    pack installed, fails FAST with a friendly error rather than attempting
+    a silent multi-minute background download — that download has no
+    visible progress UI and, per real-world testing, can stall for many
+    minutes on some machines (antivirus scanning large freshly-extracted
+    native DLLs). app.py's startup error handler catches this and reopens
+    the engine picker immediately so the user isn't left staring at
+    nothing; if they explicitly pick Local again there, THAT's an
+    intentional, user-initiated wait, not a silent one."""
     try:
         _try_import_faster_whisper()
         return
     except ImportError:
         pass
 
-    import logging
-
     from whisperflow import localpack
 
-    log = logging.getLogger(__name__)
     if not localpack.is_installed():
-        try:
-            localpack.ensure_installed(progress_cb=lambda msg: log.warning("%s", msg))
-        except RuntimeError as exc:
-            raise RuntimeError(
-                "Local (on-device) mode needs a one-time download (~800MB) and it "
-                f"failed: {exc}. Open Settings and pick Local again to retry, or "
-                "switch to a free cloud engine like Groq in the meantime."
-            ) from exc
+        raise RuntimeError(
+            "Local (on-device) mode needs a one-time download (~800MB) that hasn't "
+            "happened yet — open Settings and pick Local again, or switch to a free "
+            "cloud engine like Groq in the meantime."
+        )
     localpack.activate()
 
 

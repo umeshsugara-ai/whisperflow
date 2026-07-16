@@ -146,9 +146,8 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
         )
     if _local_pack_needs_download(cfg.model):
         log.warning(
-            "Downloading the local-inference pack (~800MB, one-time) — please keep "
-            "the app open; dictation starts when it finishes. If this fails, open "
-            "Settings and switch to a cloud engine like Groq instead."
+            "Local (on-device) mode isn't set up on this install (needs a one-time "
+            "~800MB download) — startup will offer to switch engines."
         )
     engine = create_engine(cfg.model)
     engine.load()

@@ -170,9 +170,11 @@ def test_registry_local_dispatch_falls_back_to_pack_when_not_importable(monkeypa
     assert activated["called"] is True
 
 
-def test_registry_local_dispatch_triggers_download_when_pack_missing(monkeypatch):
-    """The pack isn't installed yet -> _ensure_local_available() should
-    attempt to download it (not just raise), then activate it on success."""
+def test_registry_local_dispatch_fails_fast_when_pack_missing(monkeypatch):
+    """The pack isn't installed yet -> _ensure_local_available() must raise
+    immediately, NOT attempt a silent multi-minute background download (no
+    progress UI exists for that, and it can stall — see registry.py's
+    docstring). app.py's caller reopens the engine picker on this error."""
     from whisperflow.stt import registry
 
     def fake_import_faster_whisper():
@@ -180,24 +182,8 @@ def test_registry_local_dispatch_triggers_download_when_pack_missing(monkeypatch
 
     monkeypatch.setattr(registry, "_try_import_faster_whisper", fake_import_faster_whisper)
     monkeypatch.setattr(localpack, "is_installed", lambda: False)
-    called = {"ensure": False, "activate": False}
+    called = {"ensure": False}
     monkeypatch.setattr(localpack, "ensure_installed", lambda progress_cb=None: called.__setitem__("ensure", True))
-    monkeypatch.setattr(localpack, "activate", lambda: called.__setitem__("activate", True))
-    registry._ensure_local_available()
-    assert called == {"ensure": True, "activate": True}
-
-
-def test_registry_local_dispatch_raises_friendly_error_when_download_fails(monkeypatch):
-    from whisperflow.stt import registry
-
-    def fake_import_faster_whisper():
-        raise ImportError("no module named faster_whisper")
-
-    def fake_ensure_installed(progress_cb=None):
-        raise RuntimeError("failed to download local-inference pack: simulated network failure")
-
-    monkeypatch.setattr(registry, "_try_import_faster_whisper", fake_import_faster_whisper)
-    monkeypatch.setattr(localpack, "is_installed", lambda: False)
-    monkeypatch.setattr(localpack, "ensure_installed", fake_ensure_installed)
     with pytest.raises(RuntimeError, match="one-time download"):
         registry._ensure_local_available()
+    assert called["ensure"] is False  # must NOT have attempted a download
