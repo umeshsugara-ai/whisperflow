@@ -48,7 +48,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now (it'll help you pick a speech engine on first run)"; \
+Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; \
     Flags: nowait postinstall skipifsilent
 
 [Code]
