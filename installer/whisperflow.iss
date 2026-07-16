@@ -48,7 +48,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now (first run downloads the ~1.5GB speech model)"; \
+Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now (it'll help you pick a speech engine on first run)"; \
     Flags: nowait postinstall skipifsilent
 
 [Code]
