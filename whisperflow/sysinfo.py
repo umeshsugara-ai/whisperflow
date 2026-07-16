@@ -247,10 +247,9 @@ def recommend(
                             recommendation) if a key is available, else
                             smallest local with an honest warning
 
-    local_available=False (a cloud-only installer that never bundled local
-    inference) short-circuits the whole hardware ladder — even a strong GPU
-    can't run a model that isn't there, so recommend the free cloud engine
-    and point at the Full installer for offline mode.
+    local_available=False (this install doesn't include local inference)
+    short-circuits the whole hardware ladder — even a strong GPU can't run
+    a model that isn't there, so recommend the free cloud engine instead.
     """
     if not local_available:
         from whisperflow.stt import providers
@@ -262,9 +261,8 @@ def recommend(
             name=provider.default_model,
             device="cpu",
             compute_type="int8",
-            reason="this is the cloud-only install — Groq is free and instant; "
-            "for fully offline on-device dictation, grab the Full installer",
-            alternatives=["Full installer → local (on-device) speech-to-text, no cloud"],
+            reason="Groq is free and instant, no download needed",
+            alternatives=[],
         )
 
     alts: list[str] = []

@@ -227,7 +227,7 @@ def test_recommend_cloud_only_build_never_recommends_local_even_with_gpu(monkeyp
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     rec = recommend(specs(vram_mb=8192, gpu="RTX 4060"), local_available=False)
     assert rec.engine == "groq"
-    assert "Full installer" in rec.reason
+    assert "Groq" in rec.reason
 
 
 def test_recommend_cloud_only_build_with_existing_key_uses_that_provider(monkeypatch):

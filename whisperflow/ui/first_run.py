@@ -25,9 +25,6 @@ FG_DIM = "#9a938a"
 BTN = "#3a3733"
 ACCENT_OK = "#5cb85c"
 
-# Where to send a user who wants Local on a cloud-only install.
-FULL_INSTALLER_URL = "https://github.com/umeshsugara-ai/whisperflow/releases/latest"
-
 
 def provider_already_has_key(provider: Provider) -> bool:
     """True if the user already has this provider's API key in the
@@ -142,17 +139,12 @@ def show_first_run_chooser(root, specs, rec, path):
                 bg=BTN, fg=FG, relief="flat", padx=8, cursor="hand2",
             ).pack(anchor="e")
         else:
-            # Local on a cloud-only install: don't let the user pick a dead
-            # end — explain and point them at the Full installer instead.
+            # Local isn't available in this install — don't let the user
+            # pick a dead end, just explain (no dangling call-to-action).
             tk.Label(
-                r, text=row["unavailable_note"], bg=CARD, fg=ACCENT_OK,
+                r, text=row["unavailable_note"], bg=CARD, fg=FG_DIM,
                 font=("Segoe UI", 8), wraplength=460, justify="left",
             ).pack(anchor="w", pady=(2, 0))
-            tk.Button(
-                r, text="Get the Full installer →",
-                command=lambda: webbrowser.open(FULL_INSTALLER_URL),
-                bg=BTN, fg=FG, relief="flat", padx=8, cursor="hand2",
-            ).pack(anchor="e")
 
     def _show_key_step(provider: Provider) -> None:
         for child in list_frame.winfo_children():

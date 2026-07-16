@@ -55,7 +55,7 @@ def test_build_rows_local_unavailable_marks_only_local():
     by_id = {r["id"]: r for r in rows}
     assert by_id["local"]["available"] is False
     assert by_id["local"]["unavailable_note"]  # non-empty guidance
-    assert "Full installer" in by_id["local"]["unavailable_note"]
+    assert by_id["local"]["unavailable_note"] == "Not available in this install — pick a free cloud engine instead"
     # every cloud provider stays available
     for cid in ("groq", "gemini", "openai", "deepgram"):
         assert by_id[cid]["available"] is True

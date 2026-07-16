@@ -663,12 +663,6 @@ class SettingsPage(tk.Frame):
                     self._engine_key_frame, text=LOCAL_UNAVAILABLE_NOTE, bg=BG, fg=ACCENT_WARN,
                     font=("Segoe UI", 9), wraplength=520, justify="left",
                 ).pack(anchor="w")
-                _button(
-                    self._engine_key_frame, "Get the Full installer →",
-                    lambda: webbrowser.open(
-                        "https://github.com/umeshsugara-ai/whisperflow/releases/latest"
-                    ),
-                ).pack(anchor="w", pady=(4, 0))
             return
         already_set = bool(os.environ.get(provider.api_key_env))
         if already_set:
@@ -741,7 +735,7 @@ class SettingsPage(tk.Frame):
         if new_engine == "local" and not self._local_available:
             # Cloud-only build — don't save an engine that can't run here.
             self._status.config(
-                text="Local isn't available in this install — get the Full installer.",
+                text="Local isn't available in this install — pick a free cloud engine instead.",
                 fg=ACCENT_ERR,
             )
             return

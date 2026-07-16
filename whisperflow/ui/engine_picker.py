@@ -19,9 +19,7 @@ def badge_line(provider: Provider) -> str:
     return f"{privacy} · {cost_icon} {provider.cost_note} · {quality} · {provider.speed_note}"
 
 
-LOCAL_UNAVAILABLE_NOTE = (
-    "Not included in this install — get the Full installer for offline on-device mode"
-)
+LOCAL_UNAVAILABLE_NOTE = "Not available in this install — pick a free cloud engine instead"
 
 
 def build_rows(recommended_id: str | None = None, local_available: bool = True) -> list[dict]:
