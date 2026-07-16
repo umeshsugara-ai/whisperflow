@@ -146,7 +146,7 @@ Change it anytime in **Settings → Speech engine**.
 | **Gemini** | ☁ Cloud | Free tier | Better | Fast | A free Google account |
 | **OpenAI** | ☁ Cloud | Paid (~$0.006/min) | Best | Fast | Billing set up on your OpenAI account |
 | **Deepgram** | ☁ Cloud | $200 free credit, then paid | Best | Fast | A free account to start |
-| **NVIDIA** | ☁ Cloud | Free credits on signup | Better | Fast | A free build.nvidia.com account |
+| **NVIDIA** | ☁ Cloud | Free credits on signup | Better | Fast | A free build.nvidia.com account (English dictation only) |
 | **Local** | 🔒 Fully offline | Free | Best | Depends on your GPU | Running from source (developer install) with a decent NVIDIA GPU |
 
 **Quick picks:**
@@ -206,7 +206,7 @@ Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local f
 ## Development
 
 ```powershell
-python -m pytest tests/ -q          # 108 unit tests
+python -m pytest tests/ -q          # 191 unit tests
 python scripts/test_inject.py --self-test
 python scripts/test_overlay.py --cycle
 python scripts/test_stt.py --smoke

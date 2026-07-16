@@ -60,7 +60,7 @@ def _valid_engines() -> set[str]:
 @dataclass
 class ModelConfig:
     engine: str = "local"  # local (faster-whisper, on-device) | any registered provider id
-    # (groq / gemini / openai / deepgram) — see whisperflow.stt.providers for the full list
+    # (groq / gemini / openai / deepgram / nvidia) — see whisperflow.stt.providers for the full list
     name: str = "large-v3-turbo"
     device: str = "cuda"
     compute_type: str = "int8_float16"

@@ -35,7 +35,7 @@ def test_no_gpu_decent_cpu_gets_small_cpu():
 def test_weak_machine_with_key_gets_cloud(monkeypatch):
     # no cloud provider env var set -> defaults to groq (the free "sign up
     # now" recommendation for a user with no key at all)
-    for env_var in ("GROQ_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "DEEPGRAM_API_KEY"):
+    for env_var in ("GROQ_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "DEEPGRAM_API_KEY", "NVIDIA_API_KEY"):
         monkeypatch.delenv(env_var, raising=False)
     rec = recommend(specs(vram_mb=0, ram_gb=4, cores=2), has_api_key=True)
     assert rec.engine == "groq"
@@ -50,6 +50,7 @@ def test_weak_machine_with_key_picks_the_provider_the_user_actually_has(monkeypa
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     rec = recommend(specs(vram_mb=0, ram_gb=4, cores=2), has_api_key=True)
     assert rec.engine == "gemini"

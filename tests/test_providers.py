@@ -56,7 +56,17 @@ def test_is_cloud():
 
 def test_all_providers_includes_local_and_every_cloud_id():
     ids = {p.id for p in providers.all_providers()}
-    assert ids == {"local", "groq", "gemini", "openai", "deepgram"}
+    assert ids == {"local", "groq", "gemini", "openai", "deepgram", "nvidia"}
+
+
+def test_nvidia_is_registered():
+    p = providers.get("nvidia")
+    assert p.kind == "nvidia"
+    assert p.api_key_env == "NVIDIA_API_KEY"
+    assert p.default_model == "parakeet-ctc-1_1b-asr"
+    assert p.cost_tier == "free"
+    assert "English" in p.display_name  # the picker must be honest about the limit
+    assert p.max_upload_bytes == 5_000_000
 
 
 class _FakeSpecs:

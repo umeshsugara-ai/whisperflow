@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 class Provider:
     id: str
     display_name: str
-    kind: str  # openai_compatible | gemini | deepgram | local
+    kind: str  # openai_compatible | gemini | deepgram | nvidia | local
     base_url: str  # "" for gemini/local (their engines hardcode the endpoint)
     default_model: str
     api_key_env: str  # "" for local
@@ -106,6 +106,26 @@ PROVIDERS: dict[str, Provider] = {
             "Paste it into the field below.",
         ),
         max_upload_bytes=25_000_000,  # OpenAI audio endpoints cap files at 25MB
+    ),
+    "nvidia": Provider(
+        id="nvidia",
+        display_name="NVIDIA (free credits, English-only)",
+        kind="nvidia",
+        base_url="",  # per-model NVCF function URL, hardcoded in nvidia_engine.py
+        default_model="parakeet-ctc-1_1b-asr",
+        api_key_env="NVIDIA_API_KEY",
+        signup_url="https://build.nvidia.com",
+        cost_tier="free",
+        cost_note="Free credits on signup — no card. English dictation only",
+        quality_tier="better",
+        speed_note="Fast",
+        setup_steps=(
+            "Open build.nvidia.com (click 'Get a free key' below) and sign up free.",
+            "Click your avatar (top right) → API Keys → 'Generate API Key'.",
+            "Copy the key — it starts with 'nvapi-'.",
+            "Paste it into the field below.",
+        ),
+        max_upload_bytes=5_000_000,  # NVCF HTTP route is sized for short clips (<5MB)
     ),
     "deepgram": Provider(
         id="deepgram",

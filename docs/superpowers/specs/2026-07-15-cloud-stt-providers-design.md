@@ -27,6 +27,10 @@ user chooses local.
   a thin **provider registry**, not a framework.
 - Not building a key-vault or per-provider billing dashboard. Keys live in `.env`.
 - NVIDIA Riva (gRPC) full integration is **documented but deferred** (see Phase A).
+  *(Superseded 2026-07-16: NVCF turned out to expose a plain-HTTPS offline route for
+  parakeet-ctc-1.1b-asr — `https://{function-id}.invocation.api.nvcf.nvidia.com/v1/audio/transcriptions`
+  — so `nvidia` shipped as the 5th provider via `nvidia_engine.py`, English-only,
+  no gRPC client needed. whisper-large-v3/canary on NVCF remain gRPC-only and out.)*
 
 ## Architecture: provider registry + engine dispatch
 
@@ -71,7 +75,7 @@ The single `OpenAICompatibleEngine` covers Groq, OpenAI, and any OpenAI-compatib
 | `gemini` | 🟢 free | gemini-2.5-flash-lite | `GEMINI_API_KEY` | aistudio.google.com/apikey | gemini |
 | `openai` | 🟡 paid, better | gpt-4o-transcribe | `OPENAI_API_KEY` | platform.openai.com/api-keys | openai_compatible |
 | `deepgram` | 🟡 paid, best | nova-3 | `DEEPGRAM_API_KEY` | console.deepgram.com | deepgram |
-| `nvidia` | 🟢 free credits | whisper-large-v3 | `NVIDIA_API_KEY` | build.nvidia.com | documented-only (gRPC; deferred) |
+| `nvidia` | 🟢 free credits | parakeet-ctc-1_1b-asr | `NVIDIA_API_KEY` | build.nvidia.com | implemented 2026-07-16 (HTTP NVCF; English-only) |
 | `local` | ⚪ private/offline | large-v3-turbo…small | — | — | local |
 
 ## Phase A — multi-provider cloud STT engine

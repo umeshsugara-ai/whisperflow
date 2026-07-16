@@ -1,7 +1,7 @@
 """STT engine dispatch: provider id -> engine instance.
 
 `ModelConfig.engine` is a provider id from `whisperflow.stt.providers`
-(e.g. "local", "groq", "gemini", "openai", "deepgram"). Which concrete
+(e.g. "local", "groq", "gemini", "openai", "deepgram", "nvidia"). Which concrete
 engine class handles it is decided by the provider's `kind` — adding a new
 provider that reuses an existing kind (e.g. another openai_compatible
 service) needs zero changes here, just a new providers.py row.
@@ -32,6 +32,7 @@ _ENGINE_BY_KIND = {
     "gemini": "whisperflow.stt.gemini_engine.GeminiEngine",
     "openai_compatible": "whisperflow.stt.openai_compatible_engine.OpenAICompatibleEngine",
     "deepgram": "whisperflow.stt.deepgram_engine.DeepgramEngine",
+    "nvidia": "whisperflow.stt.nvidia_engine.NvidiaEngine",
     "local": "whisperflow.stt.faster_whisper_engine.FasterWhisperEngine",
 }
 

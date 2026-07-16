@@ -17,6 +17,7 @@ def test_any_cloud_api_key_available_detects_non_gemini_key(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("DEEPGRAM_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     assert app._any_cloud_api_key_available() is False
 
     monkeypatch.setenv("GROQ_API_KEY", "k")

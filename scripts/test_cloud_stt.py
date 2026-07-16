@@ -3,8 +3,10 @@ cloud provider with a real API key. NOT part of the pytest suite (hits
 real network APIs, costs real quota/money for paid providers).
 
 Usage:
-    set GROQ_API_KEY=...      (or GEMINI_API_KEY / OPENAI_API_KEY / DEEPGRAM_API_KEY)
+    set GROQ_API_KEY=...      (or GEMINI_API_KEY / OPENAI_API_KEY /
+                               DEEPGRAM_API_KEY / NVIDIA_API_KEY)
     python scripts/test_cloud_stt.py groq
+    python scripts/test_cloud_stt.py nvidia
     python scripts/test_cloud_stt.py          # tries every provider with a key present
 """
 
@@ -31,7 +33,14 @@ def try_provider(provider_id: str) -> None:
     if not key:
         print(f"SKIP {provider_id}: ${provider.api_key_env} not set")
         return
-    cfg = ModelConfig(engine=provider_id)
+    # mirror what the TOML loader's registry-defaulting does — a raw
+    # ModelConfig keeps Gemini's dataclass defaults for cloud_model /
+    # api_key_env, which is wrong for every other provider
+    cfg = ModelConfig(
+        engine=provider_id,
+        cloud_model=provider.default_model,
+        api_key_env=provider.api_key_env,
+    )
     engine = create_engine(cfg)
     try:
         engine.load()
