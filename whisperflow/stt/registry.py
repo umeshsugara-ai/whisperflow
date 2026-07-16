@@ -46,21 +46,28 @@ def _try_import_faster_whisper() -> None:
 def _ensure_local_available() -> None:
     """No-op on a dev checkout or WF_BUILD=full frozen build, where
     faster_whisper is already importable. Falls back to the on-demand
-    local-inference pack only when it isn't (a WF_BUILD=cloud build)."""
+    local-inference pack only when it isn't (a WF_BUILD=cloud build) —
+    downloading it synchronously on first use if needed."""
     try:
         _try_import_faster_whisper()
         return
     except ImportError:
         pass
 
+    import logging
+
     from whisperflow import localpack
 
+    log = logging.getLogger(__name__)
     if not localpack.is_installed():
-        raise RuntimeError(
-            "Local (on-device) mode needs a one-time download (~800MB) that hasn't "
-            "happened yet — open Settings and pick Local again, or switch to a free "
-            "cloud engine like Groq in the meantime."
-        )
+        try:
+            localpack.ensure_installed(progress_cb=lambda msg: log.warning("%s", msg))
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Local (on-device) mode needs a one-time download (~800MB) and it "
+                f"failed: {exc}. Open Settings and pick Local again to retry, or "
+                "switch to a free cloud engine like Groq in the meantime."
+            ) from exc
     localpack.activate()
 
 

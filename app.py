@@ -146,9 +146,9 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
         )
     if _local_pack_needs_download(cfg.model):
         log.warning(
-            "Local (on-device) mode needs a one-time download (~800MB) that hasn't "
-            "happened yet — WhisperFlow may fail to start. Open Settings and switch to "
-            "a cloud engine like Groq, or reinstall with the full offline package."
+            "Downloading the local-inference pack (~800MB, one-time) — please keep "
+            "the app open; dictation starts when it finishes. If this fails, open "
+            "Settings and switch to a cloud engine like Groq instead."
         )
     engine = create_engine(cfg.model)
     engine.load()
