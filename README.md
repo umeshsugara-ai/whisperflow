@@ -31,7 +31,7 @@ First run downloads the default model (`large-v3-turbo`, ~1.5GB) to the HuggingF
 
 ### Option A — the .exe installer (easiest, no Python needed)
 
-Two downloads on the [GitHub Releases](https://github.com/umeshsugara-ai/whisperflow/releases) page (you need collaborator access — it's private):
+Two downloads on the [GitHub Releases](https://github.com/umeshsugara-ai/whisperflow/releases) page:
 
 - **`WhisperFlow-Setup.exe`** (~29MB) — cloud engines only (Groq/Gemini/OpenAI/Deepgram).
   Pick this if you'll dictate via a free/paid cloud provider. Local mode can still be
@@ -56,7 +56,7 @@ Uninstall from Windows Settings → Apps; it force-closes WhisperFlow first (no 
 
 Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recommended — the Microsoft Store or [python.org](https://www.python.org/downloads/) build; both include the `tkinter` used by the pill/tray). Nothing in the repo hardcodes another user's paths — autostart resolves the Python path per-machine on first run.
 
-1. **Get the code.** Ask the repo owner to add you as a collaborator (it's private), then:
+1. **Get the code:**
    ```powershell
    git clone https://github.com/umeshsugara-ai/whisperflow
    cd whisperflow
@@ -97,7 +97,7 @@ Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recomme
 
 Prefer to let an AI agent do the setup? Install [Claude Code](https://claude.com/claude-code), open a terminal in an empty folder, and paste a prompt like:
 
-> Clone `https://github.com/umeshsugara-ai/whisperflow` (I have collaborator access) and set up WhisperFlow on my Windows machine: install `requirements.txt` with my Python 3.13, run `python app.py --recommend` and update `config.toml` `[model]` to match my hardware, set `[hotkey].combo` to `"ctrl+windows"`, then launch `python app.py` and confirm the log at `logs/whisperflow.log` reaches the "ready" line. If I have no NVIDIA GPU, configure the Gemini cloud engine instead, ask me for my GEMINI_API_KEY, and put it in a `.env` file next to app.py.
+> Clone `https://github.com/umeshsugara-ai/whisperflow` and set up WhisperFlow on my Windows machine: install `requirements.txt` with my Python 3.13, run `python app.py --recommend` and update `config.toml` `[model]` to match my hardware, set `[hotkey].combo` to `"ctrl+windows"`, then launch `python app.py` and confirm the log at `logs/whisperflow.log` reaches the "ready" line. If I have no NVIDIA GPU, configure the Gemini cloud engine instead, ask me for my GEMINI_API_KEY, and put it in a `.env` file next to app.py.
 
 Claude Code will run the commands, edit `config.toml`, launch the app, and verify it reaches the **ready** state — then autostart takes over on the next reboot. Point it at the sections of this README if it needs model/config details.
 
