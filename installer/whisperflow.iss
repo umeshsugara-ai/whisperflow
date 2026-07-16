@@ -65,6 +65,17 @@ begin
   Result := True;
 end;
 
+// Same for UPGRADE installs: running the new setup over an installed,
+// running copy would hit locked exe/DLLs ("file in use" / files deferred
+// to reboot). Kill it before files are copied; [Run] relaunches after.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Exec('taskkill.exe', '/F /IM {#AppExe}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := '';
+end;
+
 // On uninstall, offer the industry-standard "keep my data?" choice for
 // %LOCALAPPDATA%\WhisperFlow (config, dictation history, logs).
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
