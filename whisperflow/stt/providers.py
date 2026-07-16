@@ -114,15 +114,18 @@ PROVIDERS: dict[str, Provider] = {
         base_url="",  # per-model NVCF function URL, hardcoded in nvidia_engine.py
         default_model="parakeet-ctc-1_1b-asr",
         api_key_env="NVIDIA_API_KEY",
-        signup_url="https://build.nvidia.com",
+        # deep-links straight to the key page; logged-out users get the
+        # sign-in wall in place and land back here after login (verified
+        # live 2026-07-16 — see references/portals/build-nvidia.knowledge.md)
+        signup_url="https://build.nvidia.com/settings/api-keys",
         cost_tier="free",
         cost_note="Free credits on signup — no card. English dictation only",
         quality_tier="better",
         speed_note="Fast",
         setup_steps=(
-            "Open build.nvidia.com (click 'Get a free key' below) and sign up free.",
-            "Click your avatar (top right) → API Keys → 'Generate API Key'.",
-            "Copy the key — it starts with 'nvapi-'.",
+            "Open build.nvidia.com/settings/api-keys (click 'Get a free key' below).",
+            "Sign in — or type your email and click Next to create a free NVIDIA account (no credit card).",
+            "On the API Keys page, click 'Generate API Key' and copy it (starts with 'nvapi-').",
             "Paste it into the field below.",
         ),
         max_upload_bytes=5_000_000,  # NVCF HTTP route is sized for short clips (<5MB)
