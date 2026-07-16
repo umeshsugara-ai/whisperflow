@@ -150,6 +150,22 @@ def test_verify_provider_key_success_returns_none(monkeypatch):
     assert verify_provider_key("groq", "good-key") is None
 
 
+def test_verify_provider_key_uses_the_selected_model(monkeypatch):
+    # the key check must validate the model the user actually picked (or
+    # typed), not silently fall back to the provider default
+    from whisperflow.stt.registry import verify_provider_key
+
+    captured = {}
+
+    def fake_urlopen(req, timeout=0):
+        captured["body"] = req.data
+        return _FakeResponse({"text": ""})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    assert verify_provider_key("groq", "k", model="whisper-large-v3") is None
+    assert b"whisper-large-v3" in captured["body"]
+
+
 def test_verify_provider_key_bad_key_returns_friendly_message(monkeypatch):
     from whisperflow.stt.registry import verify_provider_key
 

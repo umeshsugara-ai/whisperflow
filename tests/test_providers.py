@@ -71,6 +71,16 @@ def test_nvidia_is_registered():
     assert p.max_upload_bytes == 5_000_000
 
 
+def test_every_provider_has_model_choices_starting_with_its_default():
+    # the Settings model dropdown renders from model_choices; the first
+    # entry must be the default so a fresh pick starts on the right id
+    for p in providers.all_providers():
+        assert p.model_choices, f"{p.id} has no model_choices"
+        ids = [mid for mid, _ in p.model_choices]
+        assert ids[0] == p.default_model, f"{p.id}: first choice must be default_model"
+        assert all(note for _, note in p.model_choices), f"{p.id}: every model needs a note"
+
+
 class _FakeSpecs:
     def __init__(self, vram_mb=0):
         self.vram_mb = vram_mb

@@ -171,7 +171,7 @@ GROQ_API_KEY=paste-your-key-here
 ## Configuration — `config.toml`
 
 - **Engine**: `[model].engine` = `groq` | `gemini` | `openai` | `deepgram` | `nvidia` (cloud, bring-your-own-key) or `local` (fully on-device — from-source installs only). Each cloud provider reads its key from its own env var (`GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `DEEPGRAM_API_KEY`, `NVIDIA_API_KEY`) — put it in a `.env` file next to your config, or set `[model].api_key`. Gemini's default cloud model is `gemini-2.5-flash-lite`; use `gemini-2.5-pro` for higher accuracy. **Privacy note:** cloud engines send dictation audio to that provider — the app logs a clear notice when one is active. (TTS-named models like `gemini-2.5-pro-preview-tts` are text-to-speech and are rejected — they can't transcribe.)
-- **Model swap**: set `[model].name` to `large-v3-turbo` (default), `large-v3` (best Hindi accuracy, slower), `medium`, `small`, or any raw HF CTranslate2 repo id.
+- **Model swap**: Settings → Speech engine has a **Model dropdown** per provider with cost/quality notes (e.g. Gemini `flash-lite` cheapest → `pro` best). The box is typable — when a provider releases a new model, just type its id; no app update needed. Applies live on Save. (Config-file equivalent: `[model].cloud_model` for cloud, `[model].name` for local — `large-v3-turbo` default, `large-v3` best Hindi, `medium`, `small`, or any raw HF CTranslate2 repo id.)
 - **Hinglish**: if auto-detect keeps choosing the wrong language, set `[model].language = "hi"`.
 - **Cleanup tiers**: `off` = verbatim; `rules` = deterministic filler/punctuation cleanup (default); `llm` = local Ollama model (optional — install [Ollama](https://ollama.com) and `ollama pull qwen2.5:3b-instruct`). If Ollama is down, dictation silently degrades to `rules` — it never blocks.
 - **Dictionary**: `[dictionary].vocabulary` biases recognition toward your terms; `[[dictionary.replacements]]` fixes persistent mis-hearings post-STT.
@@ -206,7 +206,7 @@ Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local f
 ## Development
 
 ```powershell
-python -m pytest tests/ -q          # 191 unit tests
+python -m pytest tests/ -q          # 198 unit tests
 python scripts/test_inject.py --self-test
 python scripts/test_overlay.py --cycle
 python scripts/test_stt.py --smoke

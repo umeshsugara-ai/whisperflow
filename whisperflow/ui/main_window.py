@@ -618,6 +618,26 @@ class SettingsPage(tk.Frame):
         )
         self._engine_badge.pack(side="left", padx=(8, 0))
 
+        # Per-provider model picker: curated ids with cost/quality notes, but
+        # the box stays TYPABLE — a model the provider releases after this
+        # app version works by just typing its id, no app update needed.
+        model_row = tk.Frame(engine_holder, bg=BG)
+        model_row.pack(anchor="w", pady=(6, 0))
+        tk.Label(model_row, text="Model:", bg=BG, fg=FG, font=("Segoe UI", 9)).pack(side="left")
+        self.model_var = tk.StringVar()
+        self._model_combo = ttk.Combobox(
+            model_row, textvariable=self.model_var, values=[],
+            state="normal", width=34, style="WF.TCombobox",
+        )
+        self._model_combo.pack(side="left", padx=(8, 0))
+        self._model_combo.bind("<<ComboboxSelected>>", lambda e: self._on_model_picked())
+        self._model_combo.bind("<KeyRelease>", lambda e: self._on_model_picked())
+        self._model_note_by_id: dict[str, str] = {}
+        self._model_note = tk.Label(
+            engine_holder, text="", bg=BG, fg=FG_DIM, font=("Segoe UI", 8), wraplength=440, justify="left"
+        )
+        self._model_note.pack(anchor="w", pady=(2, 0))
+
         self._engine_key_frame = tk.Frame(engine_holder, bg=BG)
         self._engine_key_frame.pack(anchor="w", fill="x", pady=(6, 0))
 
@@ -682,7 +702,22 @@ class SettingsPage(tk.Frame):
         self._engine_chip.config(text=f" {chip['text']} ", bg=chip["bg"], fg=chip["fg"])
         star = "★ Recommended for your PC — " if engine_id == self._engine_recommended_id else ""
         self._engine_badge.config(text=f"{star}{badge_line(provider)}")
+        self._model_note_by_id = dict(provider.model_choices)
+        self._model_combo.config(values=[mid for mid, _ in provider.model_choices])
+        current = self.cfg.model.name if engine_id == "local" else self.cfg.model.cloud_model
+        if engine_id == self.cfg.model.engine and current:
+            self.model_var.set(current)  # keep the user's saved choice
+        else:
+            self.model_var.set(provider.default_model)
+        self._on_model_picked()
         self._render_key_entry(provider)
+
+    def _on_model_picked(self) -> None:
+        note = self._model_note_by_id.get(self.model_var.get().strip())
+        self._model_note.config(
+            text=note
+            or "Custom model id — validated when the engine switches on Save."
+        )
 
     def _render_key_entry(self, provider) -> None:
         for child in self._engine_key_frame.winfo_children():
@@ -736,7 +771,7 @@ class SettingsPage(tk.Frame):
             def worker() -> None:
                 from whisperflow.stt.registry import verify_provider_key
 
-                err = verify_provider_key(provider.id, value)
+                err = verify_provider_key(provider.id, value, model=self.model_var.get().strip())
 
                 def apply() -> None:
                     try:
@@ -798,6 +833,15 @@ class SettingsPage(tk.Frame):
             self.cfg.model.name = rebuilt.model.name
             self.cfg.model.device = rebuilt.model.device
             self.cfg.model.compute_type = rebuilt.model.compute_type
+        # the explicit model pick overrides the registry default (typed-in
+        # custom ids included — that's how a brand-new provider model works
+        # without an app update)
+        chosen_model = self.model_var.get().strip()
+        if chosen_model:
+            if new_engine == "local":
+                self.cfg.model.name = chosen_model
+            else:
+                self.cfg.model.cloud_model = chosen_model
         try:
             self.persist()
         except (ConfigError, OSError) as exc:

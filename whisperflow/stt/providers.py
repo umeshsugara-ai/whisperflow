@@ -28,6 +28,11 @@ class Provider:
     speed_note: str
     setup_steps: tuple[str, ...] = field(default_factory=tuple)
     max_upload_bytes: int = 0  # provider's per-request audio limit; 0 = none known
+    # curated (model id, short cost/quality/speed note) pairs shown in the
+    # Settings model dropdown — first entry must be default_model. The
+    # dropdown stays typable, so a model released AFTER this app version
+    # works by just typing its id (no app release needed).
+    model_choices: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -44,6 +49,12 @@ PROVIDERS: dict[str, Provider] = {
         quality_tier="best",
         speed_note="Depends on your GPU",
         setup_steps=(),
+        model_choices=(
+            ("large-v3-turbo", "Default — best speed/quality balance, needs a decent GPU"),
+            ("large-v3", "Best Hindi accuracy, ~2x slower and ~3GB"),
+            ("medium", "Smaller — okay on a weak GPU"),
+            ("small", "Smallest — works on CPU"),
+        ),
     ),
     "groq": Provider(
         id="groq",
@@ -64,6 +75,10 @@ PROVIDERS: dict[str, Provider] = {
             "Paste it into the field below.",
         ),
         max_upload_bytes=25_000_000,  # Groq free-tier file limit is 25MB
+        model_choices=(
+            ("whisper-large-v3-turbo", "Default — fastest, cheapest, great quality"),
+            ("whisper-large-v3", "Slightly better accuracy, a bit slower"),
+        ),
     ),
     "gemini": Provider(
         id="gemini",
@@ -86,6 +101,11 @@ PROVIDERS: dict[str, Provider] = {
         # generateContent caps the request at 20MB and audio goes inline as
         # base64 (4/3 inflation) — ~14MB of WAV is the safe ceiling
         max_upload_bytes=14_000_000,
+        model_choices=(
+            ("gemini-2.5-flash-lite", "Default — cheapest, fast, great for dictation"),
+            ("gemini-2.5-flash", "Balanced — a bit better quality, ~3x the cost"),
+            ("gemini-2.5-pro", "Best accuracy — slowest and priciest"),
+        ),
     ),
     "openai": Provider(
         id="openai",
@@ -106,6 +126,11 @@ PROVIDERS: dict[str, Provider] = {
             "Paste it into the field below.",
         ),
         max_upload_bytes=25_000_000,  # OpenAI audio endpoints cap files at 25MB
+        model_choices=(
+            ("gpt-4o-transcribe", "Default — best accuracy"),
+            ("gpt-4o-mini-transcribe", "Cheaper, nearly as good"),
+            ("whisper-1", "Classic Whisper — cheapest"),
+        ),
     ),
     "nvidia": Provider(
         id="nvidia",
@@ -131,6 +156,9 @@ PROVIDERS: dict[str, Provider] = {
             "Paste it into the field below.",
         ),
         max_upload_bytes=5_000_000,  # NVCF HTTP route is sized for short clips (<5MB)
+        model_choices=(
+            ("parakeet-ctc-1_1b-asr", "Only model on NVIDIA's HTTP route today (English)"),
+        ),
     ),
     "deepgram": Provider(
         id="deepgram",
@@ -149,6 +177,10 @@ PROVIDERS: dict[str, Provider] = {
             "Go to API Keys in the left sidebar.",
             "Click 'Create a New API Key', copy it.",
             "Paste it into the field below.",
+        ),
+        model_choices=(
+            ("nova-3", "Default — best accuracy"),
+            ("nova-2", "Cheaper, still strong"),
         ),
     ),
 }

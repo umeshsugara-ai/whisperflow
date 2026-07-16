@@ -70,12 +70,13 @@ def _ensure_local_available() -> None:
         ) from None
 
 
-def verify_provider_key(provider_id: str, api_key: str) -> str | None:
-    """Live-check that `api_key` actually works for `provider_id` by
-    transcribing 0.3s of silence — the cheapest possible real request (the
-    same trick app.py's warmup uses). Returns None on success, or a
-    friendly error message to show next to the key field. Never raises —
-    this runs from UI save paths. Local never needs a key."""
+def verify_provider_key(provider_id: str, api_key: str, model: str = "") -> str | None:
+    """Live-check that `api_key` actually works for `provider_id` (and the
+    selected `model`, when given) by transcribing 0.3s of silence — the
+    cheapest possible real request (the same trick app.py's warmup uses).
+    Returns None on success, or a friendly error message to show next to
+    the key field. Never raises — this runs from UI save paths. Local
+    never needs a key."""
     import numpy as np
 
     provider = providers.get(provider_id)
@@ -83,7 +84,7 @@ def verify_provider_key(provider_id: str, api_key: str) -> str | None:
         return None
     cfg = ModelConfig(
         engine=provider_id,
-        cloud_model=provider.default_model,
+        cloud_model=model or provider.default_model,
         api_key=api_key,
         api_key_env=provider.api_key_env,
     )
