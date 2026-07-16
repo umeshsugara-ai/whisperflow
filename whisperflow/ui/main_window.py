@@ -571,7 +571,18 @@ class SettingsPage(tk.Frame):
                 font=("Segoe UI", 9), anchor="w",
             ).pack(anchor="w")
 
-        overlay_holder = row(6, "Overlay pill", "Applies immediately.")
+        streaming_holder = row(
+            6, "Live typing",
+            "Long dictations type out at natural pauses while you speak, instead of one block at the end.",
+        )
+        self.streaming_var = tk.BooleanVar()
+        tk.Checkbutton(
+            streaming_holder, text="Transcribe while I'm still speaking (chunk at pauses)",
+            variable=self.streaming_var, bg=BG, fg=FG, selectcolor=FIELD,
+            activebackground=BG, activeforeground=FG, font=("Segoe UI", 9),
+        ).pack(anchor="w")
+
+        overlay_holder = row(8, "Overlay pill", "Applies immediately.")
         self.overlay_var = tk.BooleanVar()
         self.hint_var = tk.BooleanVar()
         for text, var in (
@@ -583,7 +594,7 @@ class SettingsPage(tk.Frame):
                 activebackground=BG, activeforeground=FG, font=("Segoe UI", 9),
             ).pack(anchor="w")
 
-        autostart_holder = row(8, "Startup", "Applies immediately (Windows login entry).")
+        autostart_holder = row(10, "Startup", "Applies immediately (Windows login entry).")
         self.autostart_var = tk.BooleanVar()
         tk.Checkbutton(
             autostart_holder, text="Start WhisperFlow when I sign in to Windows",
@@ -592,9 +603,28 @@ class SettingsPage(tk.Frame):
             font=("Segoe UI", 9),
         ).pack(anchor="w")
 
+        mic_holder = row(
+            12, "Microphone",
+            "3-second listen test — if the bar doesn't move, Windows is giving us a silent/wrong mic.",
+        )
+        mic_row = tk.Frame(mic_holder, bg=BG)
+        mic_row.pack(anchor="w")
+        self._mic_test_btn = _button(mic_row, "Test mic", self._test_mic)
+        self._mic_test_btn.pack(side="left")
+        self._mic_level = tk.Canvas(
+            mic_row, width=180, height=12, bg=FIELD, highlightthickness=0
+        )
+        self._mic_level.pack(side="left", padx=(10, 0))
+        self._mic_level_bar = self._mic_level.create_rectangle(0, 0, 0, 12, fill=ACCENT_OK, outline="")
+        self._mic_status = tk.Label(
+            mic_holder, text="", bg=BG, fg=FG_DIM, font=("Segoe UI", 8),
+            wraplength=440, justify="left",
+        )
+        self._mic_status.pack(anchor="w", pady=(4, 0))
+
         self._engine_recommended_id = None  # set lazily in refresh() via sysinfo.recommend()
         self._local_available = True  # set lazily in refresh() — False on a cloud-only build
-        engine_holder = row(10, "Speech engine", "Applies immediately on Save — switches in the background, no restart.")
+        engine_holder = row(14, "Speech engine", "Applies immediately on Save — switches in the background, no restart.")
         # dropdown shows friendly display names; map both ways to config ids
         self._engine_id_by_label = {p.display_name: p.id for p in _stt_providers.all_providers()}
         self._engine_label_by_id = {v: k for k, v in self._engine_id_by_label.items()}
@@ -659,6 +689,7 @@ class SettingsPage(tk.Frame):
         label = next((lb for lb, v in LANGUAGE_CHOICES if v == self.cfg.model.language), LANGUAGE_CHOICES[0][0])
         self.language_var.set(label)
         self.tier_var.set(self.cfg.cleanup.tier)
+        self.streaming_var.set(self.cfg.streaming.enabled)
         self.overlay_var.set(self.cfg.overlay.always_visible)
         self.hint_var.set(self.cfg.overlay.show_hint)
         self.autostart_var.set(sysinfo.is_autostart_enabled())
@@ -791,6 +822,71 @@ class SettingsPage(tk.Frame):
         save_btn = _button(key_row, "Save key", _save_key)
         save_btn.pack(side="left", padx=(6, 0))
 
+    def _test_mic(self) -> None:
+        """3-second live listen on the configured mic with a moving level bar.
+
+        Directly answers "why is nothing transcribing": if the bar stays flat,
+        the mic WhisperFlow gets from Windows is silent (wrong default device,
+        a virtual mic like Camo, muted input, or mic privacy settings) — the
+        verdict text says which mic was actually opened so the user can fix it.
+        """
+        self._mic_test_btn.config(state="disabled")
+        self._mic_status.config(text="Listening… say something!", fg=FG_DIM)
+        self._mic_level.coords(self._mic_level_bar, 0, 0, 0, 12)
+
+        def worker() -> None:
+            try:
+                import sounddevice as sd
+
+                from whisperflow.audio import SAMPLE_RATE, device_warning, resolve_device
+
+                device_idx, device_name = resolve_device(self.cfg.audio.device)
+                peak_holder = {"peak": 0.0}
+
+                def cb(indata, frames, time_info, status) -> None:
+                    level = float(abs(indata[:, 0]).max())
+                    peak_holder["peak"] = max(peak_holder["peak"], level)
+                    width = min(1.0, level * 20.0) * 180
+                    self.after(0, lambda w=width: self._mic_level.coords(self._mic_level_bar, 0, 0, w, 12))
+
+                with sd.InputStream(
+                    samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                    device=device_idx, callback=cb,
+                ):
+                    time.sleep(3.0)
+
+                peak = peak_holder["peak"]
+                warn = device_warning(self.cfg.audio.device, device_name)
+                if peak >= 0.01:
+                    text, color = f'✓ Hearing you loud and clear on "{device_name}"', ACCENT_OK
+                elif peak > 0.001:
+                    text, color = (
+                        f'⚠ Very faint signal on "{device_name}" — raise the input volume in '
+                        "Windows Sound settings (WhisperFlow auto-boosts, but louder is better)",
+                        ACCENT_WARN,
+                    )
+                else:
+                    text, color = (
+                        f'✗ Silence from "{device_name}" — wrong mic? Check Windows Sound '
+                        "settings (default input device) and Privacy → Microphone access",
+                        ACCENT_ERR,
+                    )
+                if warn:
+                    text += f"\n⚠ {warn}"
+            except Exception as exc:  # noqa: BLE001 — a mic test must never crash Settings
+                text, color = f"✗ Mic test failed: {exc}", ACCENT_ERR
+
+            def done() -> None:
+                try:
+                    self._mic_status.config(text=text, fg=color)
+                    self._mic_test_btn.config(state="normal")
+                except tk.TclError:
+                    pass  # user navigated away mid-test
+
+            self.after(0, done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _toggle_autostart(self) -> None:
         try:
             if self.autostart_var.get():
@@ -804,10 +900,11 @@ class SettingsPage(tk.Frame):
         old = (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
                self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
                self.cfg.model.cloud_model, self.cfg.model.api_key_env, self.cfg.model.name,
-               self.cfg.model.device, self.cfg.model.compute_type)
+               self.cfg.model.device, self.cfg.model.compute_type, self.cfg.streaming.enabled)
         self.cfg.hotkey.combo = self.hotkey_var.get()
         self.cfg.model.language = self._selected_language()
         self.cfg.cleanup.tier = self.tier_var.get()
+        self.cfg.streaming.enabled = self.streaming_var.get()
         self.cfg.overlay.always_visible = self.overlay_var.get()
         self.cfg.overlay.show_hint = self.hint_var.get()
         new_engine = self._selected_engine_id()
@@ -848,7 +945,7 @@ class SettingsPage(tk.Frame):
             (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
              self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
              self.cfg.model.cloud_model, self.cfg.model.api_key_env, self.cfg.model.name,
-             self.cfg.model.device, self.cfg.model.compute_type) = old
+             self.cfg.model.device, self.cfg.model.compute_type, self.cfg.streaming.enabled) = old
             self._status.config(text=str(exc), fg=ACCENT_ERR)
             return
         self._status.config(text="Saved ✓ — applied", fg=ACCENT_OK)

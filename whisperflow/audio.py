@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -25,6 +26,12 @@ from whisperflow.config import AudioConfig
 log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16_000
+
+# Virtual mics that exist even when their companion app isn't streaming — they
+# deliver pure silence, and Windows loves silently making them the default
+# (this bit us on 2026-07-07 with "Microphone (Camo)"). We can't refuse to use
+# them, but we can warn loudly so "why is nothing transcribing" is answerable.
+_VIRTUAL_MIC_HINTS = ("camo", "steam streaming", "droidcam", "iriun", "virtual audio")
 
 
 @dataclass
@@ -56,6 +63,30 @@ def resolve_device(preference: str) -> tuple[int | None, str]:
     return None, "system default"
 
 
+def device_warning(preference: str, resolved_name: str) -> str:
+    """Human-readable warning when the resolved mic looks wrong, else "".
+
+    Pure (no sounddevice calls) so it's unit-testable anywhere:
+    - the pinned device wasn't found and we silently fell back to the default;
+    - the mic in use is a known always-silent virtual device (Camo & friends).
+    """
+    lowered = resolved_name.lower()
+    if (
+        preference
+        and preference.lower() != "default"
+        and preference.lower() not in lowered
+    ):
+        return f'mic "{preference}" not found — using "{resolved_name}" instead'
+    for hint in _VIRTUAL_MIC_HINTS:
+        if hint in lowered:
+            return (
+                f'"{resolved_name}" is a virtual mic — it records silence unless '
+                "its companion app is streaming. Pick your real mic in Windows "
+                "Sound settings or pin it via [audio].device"
+            )
+    return ""
+
+
 class Recorder:
     """Start/stop microphone capture; returns a Recording on stop."""
 
@@ -69,6 +100,13 @@ class Recorder:
         self._sample_count = 0
         self.on_max_duration: callable | None = None  # set by controller
         self.last_peak: float = 0.0  # live input level for UI feedback
+        self.device_warning: str = ""  # set at start() when the mic looks wrong
+        self._warned_devices: set[str] = set()  # WARN once per device, then debug
+        # live-chunking state (see drain()): voice activity + pending buffer size
+        self._voice_rms = max(cfg.silence_rms * 4.0, 0.002)
+        self._last_voice: float = 0.0  # monotonic time of last voiced block
+        self._voiced_since_drain = False
+        self._pending_samples = 0  # samples buffered since start/last drain
 
     @property
     def device_name(self) -> str:
@@ -83,16 +121,37 @@ class Recorder:
         with self._lock:
             return self._sample_count / SAMPLE_RATE
 
+    @property
+    def pending_seconds(self) -> float:
+        """Audio buffered since start (or the last drain) — chunking watermark."""
+        with self._lock:
+            return self._pending_samples / SAMPLE_RATE
+
+    @property
+    def voiced_since_drain(self) -> bool:
+        return self._voiced_since_drain
+
+    def seconds_since_voice(self) -> float:
+        """Seconds since the last block that looked like speech (inf if none)."""
+        if self._last_voice <= 0.0:
+            return float("inf")
+        return time.monotonic() - self._last_voice
+
     def _callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:
         if status:
             log.debug("audio status: %s", status)
         # live level for UI feedback (no lock: single float write is atomic)
         self.last_peak = float(np.abs(indata[:, 0]).max())
+        block_rms = float(np.sqrt(np.mean(indata[:, 0] ** 2)))
+        if block_rms > self._voice_rms:
+            self._last_voice = time.monotonic()
+            self._voiced_since_drain = True
         with self._lock:
             if self._sample_count >= self._max_samples:
                 return  # cap reached: drop further blocks
             self._blocks.append(indata[:, 0].copy())
             self._sample_count += frames
+            self._pending_samples += frames
             if self._sample_count >= self._max_samples and self.on_max_duration:
                 # notify once, outside the lock would be nicer but callback is short
                 cb, self.on_max_duration = self.on_max_duration, None
@@ -103,9 +162,19 @@ class Recorder:
         if self._stream is not None:
             raise RuntimeError("already recording")
         device_idx, self._device_name = resolve_device(self.cfg.device)
+        self.device_warning = device_warning(self.cfg.device, self._device_name)
+        if self.device_warning:
+            if self._device_name not in self._warned_devices:
+                self._warned_devices.add(self._device_name)
+                log.warning("%s", self.device_warning)
+            else:
+                log.debug("%s", self.device_warning)
         with self._lock:
             self._blocks = []
             self._sample_count = 0
+            self._pending_samples = 0
+        self._last_voice = 0.0
+        self._voiced_since_drain = False
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=1,
@@ -118,17 +187,8 @@ class Recorder:
         log.info("recording started on %r", self._device_name)
         return self._device_name
 
-    def stop(self) -> Recording:
-        """End capture and return the buffered audio."""
-        if self._stream is None:
-            raise RuntimeError("not recording")
-        stream, self._stream = self._stream, None
-        stream.stop()
-        stream.close()
-
-        with self._lock:
-            blocks, self._blocks = self._blocks, []
-
+    def _finalize(self, blocks: list[np.ndarray]) -> Recording:
+        """Turn raw blocks into a Recording (rms/auto-gain/flag logic)."""
         samples = np.concatenate(blocks) if blocks else np.zeros(0, dtype=np.float32)
         duration_s = len(samples) / SAMPLE_RATE
         # silence decision uses the ORIGINAL level, before any gain
@@ -143,7 +203,7 @@ class Recorder:
             samples = samples * gain
             log.info("auto-gain applied: peak %.4f -> %.2f (gain %.1fx)", peak, min(peak * gain, 0.85), gain)
 
-        rec = Recording(
+        return Recording(
             samples=samples,
             device_name=self._device_name,
             duration_s=duration_s,
@@ -151,13 +211,41 @@ class Recorder:
             too_short=duration_s < self.cfg.min_seconds,
             silent=rms < self.cfg.silence_rms,
         )
+
+    def stop(self) -> Recording:
+        """End capture and return the buffered audio."""
+        if self._stream is None:
+            raise RuntimeError("not recording")
+        stream, self._stream = self._stream, None
+        stream.stop()
+        stream.close()
+
+        with self._lock:
+            blocks, self._blocks = self._blocks, []
+            self._pending_samples = 0
+
+        rec = self._finalize(blocks)
         log.info(
             "recording stopped: %.2fs, rms=%.5f, too_short=%s, silent=%s",
-            duration_s,
-            rms,
+            rec.duration_s,
+            rec.rms,
             rec.too_short,
             rec.silent,
         )
+        return rec
+
+    def drain(self) -> Recording | None:
+        """Take the audio buffered so far WITHOUT stopping the stream — the
+        live-chunking path: the controller drains at natural pauses and sends
+        each chunk to STT while the user keeps speaking. None when idle."""
+        if self._stream is None:
+            return None
+        with self._lock:
+            blocks, self._blocks = self._blocks, []
+            self._pending_samples = 0
+        self._voiced_since_drain = False
+        rec = self._finalize(blocks)
+        log.info("chunk drained: %.2fs, rms=%.5f, silent=%s", rec.duration_s, rec.rms, rec.silent)
         return rec
 
     def cancel(self) -> None:
@@ -169,4 +257,5 @@ class Recorder:
         stream.close()
         with self._lock:
             self._blocks = []
+            self._pending_samples = 0
         log.info("recording cancelled")

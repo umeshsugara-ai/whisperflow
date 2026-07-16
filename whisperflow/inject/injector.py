@@ -32,9 +32,15 @@ class InjectionError(RuntimeError):
     """All applicable injection tiers failed."""
 
 
-def _modifiers_down() -> bool:
+def modifiers_down() -> bool:
+    """True while any modifier key is physically held — used both to delay
+    injection here and by the controller to hold back LIVE chunk injection
+    during hold-to-talk (injecting under a held Win/Alt would fire shortcuts)."""
     user32 = ctypes.windll.user32
     return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MODIFIER_VKS)
+
+
+_modifiers_down = modifiers_down  # backwards-compatible private alias
 
 
 def _wait_modifiers_released(timeout_ms: int) -> None:

@@ -40,6 +40,16 @@ max_seconds = 120          # hard recording cap
 min_seconds = 0.3          # discard shorter recordings
 silence_rms = 0.0005       # below this RMS the recording is treated as silence (no transcription)
 
+[streaming]
+# Live typing: transcribe at natural pauses WHILE you speak, so long dictations
+# type out progressively instead of arriving in one block at the end. While the
+# hotkey is physically held (hold-to-talk) text is transcribed in the background
+# but injected on release, so held modifiers never corrupt keystrokes.
+enabled = true
+pause_s = 0.7              # silence gap (seconds) that closes a chunk
+min_chunk_s = 2.0          # never send chunks shorter than this
+max_chunk_s = 30.0         # force a chunk boundary even with no pause
+
 [cleanup]
 tier = "rules"             # off | rules | llm (Ollama, local) | gemini (cloud text-polish, BYOK)
 llm_model = "qwen2.5:3b-instruct"

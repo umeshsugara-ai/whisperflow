@@ -153,6 +153,17 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
         if not focus.is_own_window(hwnd):
             target["hwnd"] = hwnd
 
+    from whisperflow.inject import injector as _injector
+
+    def can_inject_now() -> bool:
+        # live partial injection is safe only when no hotkey modifier is held
+        # (hold-to-talk) AND the dictation target still has focus — otherwise
+        # the text waits and flushes with the final chunk
+        if _injector.modifiers_down():
+            return False
+        hwnd = focus.current_window()
+        return hwnd == target["hwnd"] or focus.is_own_window(hwnd)
+
     ctl = Controller(
         recorder=recorder,
         engine=engine,
@@ -164,6 +175,8 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
         on_result=on_result,
         language=cfg.model.language,
         initial_prompt=vocabulary_prompt(cfg.dictionary),
+        streaming=cfg.streaming,
+        can_inject_now=can_inject_now,
     )
     ctl.remember_target = remember_target  # called by state handlers on RECORDING
 
@@ -239,6 +252,8 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
     overlay.on_confirm = lambda: ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
     overlay.on_start = lambda: ctl.handle_hotkey(HotkeyEvent.RECORD_START)  # click pill to start
 
+    from whisperflow.ui.feedback import idle_flash
+
     def on_state(state: State, detail: str) -> None:
         tray.set_state(state.name, detail)
         if state is State.RECORDING:
@@ -249,12 +264,13 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         elif state is State.ERROR:
             overlay.post(overlay.flash_error, f"Error: {detail}")
         else:  # IDLE
-            if "clipboard" in detail:
-                overlay.post(overlay.flash_warn, "Copied — press Ctrl+V")
-            elif detail.startswith("injected"):
-                overlay.post(overlay.flash_done, "Injected ✓")
-            else:
+            flash = idle_flash(detail)
+            if flash is None:
                 overlay.post(overlay.show_idle)
+            elif flash[0] == "done":
+                overlay.post(overlay.flash_done, flash[1])
+            else:
+                overlay.post(overlay.flash_warn, flash[1])
 
     def rebuild_processor() -> None:
         ctl.process_text = build_processor(
@@ -314,6 +330,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         rebuild_processor()
         ctl.initial_prompt = vocabulary_prompt(cfg.dictionary)
         ctl.language = cfg.model.language
+        ctl.streaming = cfg.streaming
         listener.rebind(cfg.hotkey.combo)
         overlay.persistent = cfg.overlay.always_visible
         overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)
@@ -340,6 +357,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         cfg.inject = fresh.inject
         cfg.dictionary = fresh.dictionary
         cfg.audio = fresh.audio
+        cfg.streaming = fresh.streaming
         cfg.overlay = fresh.overlay
         cfg.hotkey = fresh.hotkey
         cfg.model = fresh.model

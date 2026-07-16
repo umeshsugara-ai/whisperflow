@@ -94,6 +94,18 @@ class AudioConfig:
 
 
 @dataclass
+class StreamingConfig:
+    """Live chunked transcription — transcribe at natural pauses while the
+    user is still speaking, so long dictations type out progressively instead
+    of landing in one block at the end."""
+
+    enabled: bool = True
+    pause_s: float = 0.7  # silence gap that closes a chunk
+    min_chunk_s: float = 2.0  # never send chunks shorter than this
+    max_chunk_s: float = 30.0  # force a chunk boundary even with no pause
+
+
+@dataclass
 class CleanupConfig:
     tier: str = "rules"
     llm_model: str = "qwen2.5:3b-instruct"
@@ -145,6 +157,7 @@ class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    streaming: StreamingConfig = field(default_factory=StreamingConfig)
     cleanup: CleanupConfig = field(default_factory=CleanupConfig)
     inject: InjectConfig = field(default_factory=InjectConfig)
     dictionary: DictionaryConfig = field(default_factory=DictionaryConfig)
@@ -244,6 +257,14 @@ def _validate(cfg: Config) -> None:
         raise ConfigError("[hotkey].combo must not be empty")
     if cfg.audio.max_seconds <= cfg.audio.min_seconds:
         raise ConfigError("[audio].max_seconds must be greater than [audio].min_seconds")
+    st = cfg.streaming
+    if st.pause_s <= 0:
+        raise ConfigError(f"[streaming].pause_s must be > 0, got {st.pause_s}")
+    if not (0 < st.min_chunk_s <= st.max_chunk_s):
+        raise ConfigError(
+            "[streaming] needs 0 < min_chunk_s <= max_chunk_s, "
+            f"got min_chunk_s={st.min_chunk_s} max_chunk_s={st.max_chunk_s}"
+        )
 
 
 def load_config(path: Path | str | None = None) -> Config:
@@ -306,6 +327,9 @@ def _build_config(section, replacements, d, cfg_path) -> Config:
         model=_build_model_config(section),
         hotkey=HotkeyConfig(**{k: v for k, v in section("hotkey").items() if k in HotkeyConfig.__dataclass_fields__}),
         audio=AudioConfig(**{k: v for k, v in section("audio").items() if k in AudioConfig.__dataclass_fields__}),
+        streaming=StreamingConfig(
+            **{k: v for k, v in section("streaming").items() if k in StreamingConfig.__dataclass_fields__}
+        ),
         cleanup=CleanupConfig(
             **{k: v for k, v in section("cleanup").items() if k in CleanupConfig.__dataclass_fields__}
         ),
@@ -345,8 +369,8 @@ def serialize_config(cfg: Config) -> str:
     GUI save (targeted line-editing breaks on arrays-of-tables).
     """
     t = _toml_value
-    m, hk, a, c, i, dic, h, o, s = (
-        cfg.model, cfg.hotkey, cfg.audio, cfg.cleanup, cfg.inject,
+    m, hk, a, st, c, i, dic, h, o, s = (
+        cfg.model, cfg.hotkey, cfg.audio, cfg.streaming, cfg.cleanup, cfg.inject,
         cfg.dictionary, cfg.history, cfg.overlay, cfg.startup,
     )
     replacement_blocks = "".join(
@@ -389,9 +413,22 @@ double_tap_ms = {t(hk.double_tap_ms)}        # 0 = off; >0 = double-tap the comb
 
 [audio]
 device = {t(a.device)}         # "default" = system default (re-checked every recording), or a name substring
+                           # NOTE: if the named mic isn't found, WhisperFlow falls back to the
+                           # system default and warns — beware virtual mics (e.g. "Camo") that
+                           # deliver pure silence when their companion app isn't streaming.
 max_seconds = {t(a.max_seconds)}          # hard recording cap
 min_seconds = {t(a.min_seconds)}          # discard shorter recordings
 silence_rms = {t(a.silence_rms)}       # below this RMS the recording is treated as silence (no transcription)
+
+[streaming]
+# Live typing: transcribe at natural pauses WHILE you speak, so long dictations
+# type out progressively instead of arriving in one block at the end. While the
+# hotkey is physically held (hold-to-talk) text is transcribed in the background
+# but injected on release, so held modifiers never corrupt keystrokes.
+enabled = {t(st.enabled)}
+pause_s = {t(st.pause_s)}              # silence gap (seconds) that closes a chunk
+min_chunk_s = {t(st.min_chunk_s)}          # never send chunks shorter than this
+max_chunk_s = {t(st.max_chunk_s)}         # force a chunk boundary even with no pause
 
 [cleanup]
 tier = {t(c.tier)}             # off | rules | llm (Ollama, local) | gemini (cloud text-polish, BYOK)

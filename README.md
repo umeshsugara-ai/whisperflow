@@ -81,7 +81,7 @@ Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recomme
    ```
    Creates a Start Menu entry that opens the product window (not a console) — right-click it → **Pin to taskbar**. Pass `-Name "yourName"` to customize the label, e.g. `-File scripts\create_shortcut.ps1 -Name "myWhisperFlow"`.
 
-**If dictation types nothing:** Windows → Sound → **Input** → confirm the mic isn't muted/at 0 and the Test bar moves when you speak (and any Nahimic/Realtek mic effect isn't muting it).
+**If dictation types nothing** (pill opens and closes, flat waveform, "No speech — check mic ⚠" flash): open the app window → **Settings → Microphone → Test mic**. If the bar stays flat, Windows is handing WhisperFlow a silent or wrong input device — usually a virtual mic (e.g. "Microphone (Camo)", which records silence unless the Camo app is streaming) that Windows quietly made the default. Fix: Windows → Sound → **Input** → pick your real mic as default (and confirm it isn't muted/at 0 and the Test bar moves when you speak), or pin it by name via `[audio].device` in config.toml. Also check Settings → Privacy & security → Microphone → "Let desktop apps access your microphone". The verdict under Test mic names the exact device WhisperFlow opened, and warns when a pinned mic wasn't found or a known-virtual mic is in use.
 
 ### Set up with Claude Code
 
@@ -99,6 +99,7 @@ Your **hotkey** is whatever `[hotkey].combo` is set to — **`Ctrl+Win` by defau
 |---|---|
 | Hold-to-talk | Hold your hotkey (default **Ctrl+Win**), speak, release → text is injected |
 | Toggle mode | Tap the hotkey (<350ms), speak freely, tap again to finish |
+| Live typing | In toggle mode, pause naturally mid-dictation → the sentence so far types out while you keep talking (`[streaming]` in config, on by default) |
 | Cancel a recording | **Esc** |
 | Open the app window | **Right-click the pill**, double-click the tray icon, or just run `python app.py` again |
 | Get the raw (uncleaned) transcript | Tray → "Copy last RAW transcript", or the History screen |
@@ -122,7 +123,7 @@ launch opens it automatically:
 - **Home** — lifetime stats (total words, average WPM, day streak, dictations), a plain-language status strip ("All good ✓" or recent warnings), and your latest dictations with one-click copy.
 - **History** — searchable list of every dictation with the RAW and cleaned text side by side.
 - **Dictionary** — add vocabulary words and "when I say → write instead" rules; saved straight to config.toml.
-- **Settings** — hotkey, language, cleanup tier, overlay pill, start-on-login. No config-file editing needed; restart-required fields say so.
+- **Settings** — hotkey, language, cleanup tier, live typing, overlay pill, start-on-login, and a **Test mic** button with a live level bar (the 10-second answer to "why is nothing transcribing"). No config-file editing needed; restart-required fields say so.
 
 Closing the window just hides it — WhisperFlow keeps running in the tray.
 
@@ -175,6 +176,7 @@ GROQ_API_KEY=paste-your-key-here
 - **Hinglish**: if auto-detect keeps choosing the wrong language, set `[model].language = "hi"`.
 - **Cleanup tiers**: `off` = verbatim; `rules` = deterministic filler/punctuation cleanup (default); `llm` = local Ollama model (optional — install [Ollama](https://ollama.com) and `ollama pull qwen2.5:3b-instruct`). If Ollama is down, dictation silently degrades to `rules` — it never blocks.
 - **Dictionary**: `[dictionary].vocabulary` biases recognition toward your terms; `[[dictionary.replacements]]` fixes persistent mis-hearings post-STT.
+- **Live typing**: `[streaming].enabled` (default `true`) transcribes at natural pauses *while you're still speaking* — a long dictation types out sentence by sentence instead of arriving in one block at the end. Chunks close after `pause_s` (0.7s) of silence once `min_chunk_s` (2s) is buffered, or force-cut at `max_chunk_s` (30s). Earlier chunks are fed back as prompt context so punctuation/casing carry across boundaries. While the hotkey is physically held (hold-to-talk) the text is transcribed in the background but injected on release — held modifiers never corrupt keystrokes; the win there is that the transcription latency is already paid down when you release.
 - Most changes apply via tray → "Reload config"; model/hotkey changes need a restart.
 
 ## Autostart on boot
@@ -201,7 +203,7 @@ Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local f
 
 - **Elevated apps** (Run as administrator): Windows UIPI blocks injection from a non-elevated process. Run WhisperFlow elevated too if you need to dictate into elevated windows.
 - **WSL terminals**: injection uses real unicode key events (not simulated Ctrl+V), which works in Windows Terminal — but if a specific target misbehaves, set `[inject].method = "paste"`.
-- Record-then-transcribe, not streaming: text appears ~1–2.5s after you stop speaking (10s dictation on an RTX 4060).
+- Live typing is pause-based chunking, not true word-by-word streaming: text appears at natural pauses (and once injected it can't be retro-corrected by later context). The final fragment still lands ~1–2.5s after you stop speaking (10s dictation on an RTX 4060).
 
 ## Development
 
