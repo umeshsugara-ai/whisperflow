@@ -49,6 +49,16 @@ hiddenimports = [
     "pystray._win32",
     "PIL._tkinter_finder",
     "win32timezone",
+    # registry.py dispatches these via importlib.import_module() with a
+    # dynamically-built module path (kind -> "whisperflow.stt.X_engine") so
+    # PyInstaller's static import scanner can't discover them on its own —
+    # without this, picking e.g. Groq/OpenAI in the frozen app crashes with
+    # "ModuleNotFoundError: No module named 'whisperflow.stt...'" the first
+    # time create_engine() is called for that provider.
+    "whisperflow.stt.gemini_engine",
+    "whisperflow.stt.openai_compatible_engine",
+    "whisperflow.stt.deepgram_engine",
+    "whisperflow.stt.faster_whisper_engine",
 ]
 
 a = Analysis(
