@@ -47,6 +47,15 @@ if ($LocalPack) {
         $src = "$sitePkgs\$pkg"
         if (Test-Path $src) { Copy-Item -Recurse $src "$packStage\$pkg" }
     }
+    # Drop the same CUDA DLLs whisperflow.spec's "full" build excludes —
+    # verified unused by ctranslate2's whisper pipeline (see spec's own
+    # _CUDA_SKIP comment): saves ~865MB and this many fewer/smaller large
+    # binaries also noticeably speeds up antivirus on-access scanning the
+    # first time a client activates a freshly-downloaded pack.
+    $cudaSkip = @("cudnn_engines_precompiled", "cudnn_adv", ".alt.", "nvblas")
+    Get-ChildItem "$packStage\nvidia" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue |
+        Where-Object { $name = $_.Name; $cudaSkip | Where-Object { $name -match [regex]::Escape($_) } } |
+        Remove-Item -Force
 
     # Validate that all required packages were staged successfully
     $expectedPkgs = @("faster_whisper", "ctranslate2", "tokenizers", "nvidia", "av", "onnxruntime")

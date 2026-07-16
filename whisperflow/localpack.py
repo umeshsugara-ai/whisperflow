@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -87,3 +88,19 @@ def activate() -> None:
     pack_str = str(PACK_DIR)
     if pack_str not in sys.path:
         sys.path.insert(0, pack_str)
+    # sys.path only helps Python's `import` machinery find .py/.pyd files
+    # here — it does NOT put this tree on the Windows DLL search path,
+    # which is what ctranslate2's compiled extension needs to resolve its
+    # OWN dependent DLLs (cublas/cudnn, ctranslate2.dll itself). Without
+    # this, loading ctranslate2 from a pack directory outside the frozen
+    # app's own folder silently stalls/fails. Python 3.8+ on Windows.
+    if hasattr(os, "add_dll_directory"):
+        seen: set[str] = set()
+        for dll in PACK_DIR.rglob("*.dll"):
+            folder = str(dll.parent)
+            if folder not in seen:
+                seen.add(folder)
+                try:
+                    os.add_dll_directory(folder)
+                except OSError:
+                    pass  # already added, or not needed on this platform
