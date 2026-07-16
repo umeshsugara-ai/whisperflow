@@ -104,8 +104,10 @@ class _Session:
     raw_parts: list[str] = field(default_factory=list)
     injected_parts: list[str] = field(default_factory=list)
     pending_text: str = ""  # transcribed but not yet injected (modifiers held)
+    context_tail: str = ""  # rolling tail of raw text, fed to later chunks as prompt
     carry: np.ndarray | None = None  # audio from a failed partial, retried on the next chunk
     cancelled: bool = False
+    transcribe_failures: int = 0  # consecutive — the segmenter backs off at 2
     duration_s: float = 0.0
     transcribe_seconds: float = 0.0
     language: str = ""
@@ -126,8 +128,9 @@ class Controller:
     """Coordinates recorder, stt engine, text processor, and injector.
 
     recorder      : object with start() -> str, stop() -> Recording, cancel();
-                    live chunking additionally needs drain() -> Recording,
-                    pending_seconds, seconds_since_voice(), voiced_since_drain
+                    live chunking additionally needs the full _CHUNK_SURFACE
+                    (take_pending/build_recording/pending_seconds/
+                    seconds_since_voice/voiced_since_drain)
     engine        : SttEngine (already loaded)
     process_text  : (raw_text, language) -> (final_text, tier) — cleanup +
                     dictionary hook; identity by default (filled in step 7)
@@ -194,14 +197,17 @@ class Controller:
             job = self._jobs.get()
             if job is None:
                 continue
-            session, recording, is_final = job
+            session, payload, is_final = job
             if session.cancelled:
                 continue  # stale chunk of a cancelled dictation
+            if not is_final:
+                # partial jobs run while state is RECORDING and must NEVER
+                # reach the ERROR path below (RECORDING -> ERROR is illegal
+                # and the fallback IDLE would desync the UI from a live mic)
+                self._process_partial(session, payload)
+                continue
             try:
-                if is_final:
-                    self._process_final(session, recording)
-                else:
-                    self._process_partial(session, recording)
+                self._process_final(session, payload)
             except Exception as exc:  # noqa: BLE001
                 log.exception("dictation pipeline failed")
                 self._set_state(State.ERROR, str(exc))
@@ -227,16 +233,17 @@ class Controller:
     def _transcribe_piece(self, session: _Session, recording: Recording) -> str:
         """Transcribe one chunk into cleaned text ('' when skippable).
 
-        Later chunks see the session's text so far as extra prompt context —
-        punctuation/casing carry across chunk boundaries.
+        Later chunks see a rolling tail of the session's raw text as extra
+        prompt context — punctuation/casing carry across chunk boundaries.
+        min_seconds is a per-DICTATION guard, not per-chunk: a tiny final
+        tail after earlier chunks (a quick closing word) is still transcribed.
         """
-        if recording.too_short or recording.silent:
+        if recording.silent or (recording.too_short and not session.raw_parts):
             log.info(
-                "skipping chunk: %s", "too short" if recording.too_short else "no speech detected"
+                "skipping chunk: %s", "no speech detected" if recording.silent else "too short"
             )
             return ""
-        context = _append_text(" ".join(session.raw_parts), session.pending_text)
-        prompt = _append_text(self.initial_prompt, context[-200:] if context else "")
+        prompt = _append_text(self.initial_prompt, session.context_tail)
         result = self.engine.transcribe(
             recording.samples,
             language=self.language,
@@ -251,55 +258,99 @@ class Controller:
             return ""
         from whisperflow.stt.faster_whisper_engine import HINGLISH_SEED
 
-        if is_prompt_echo(raw_text, f"{self.initial_prompt} {HINGLISH_SEED}"):
+        # check the echo against everything that was actually SENT as prompt —
+        # whisper parrots the context tail just as happily as the vocabulary
+        if is_prompt_echo(raw_text, f"{prompt} {HINGLISH_SEED}"):
             log.info("dropped prompt-echo hallucination: %r", raw_text)
             return ""
 
         final_text, tier = self.process_text(raw_text, result.language)
         session.raw_parts.append(raw_text)
+        session.context_tail = _append_text(session.context_tail, raw_text)[-200:]
         session.tier = tier
         return final_text
 
     # ---- job processing ----
 
-    def _process_partial(self, session: _Session, recording: Recording) -> None:
-        """A live chunk drained mid-recording. Never changes state (the pill
-        stays in its recording look); never raises (a lost partial must not
-        kill the dictation — its audio is carried into the next chunk)."""
-        try:
-            recording = self._with_carry(session, recording)
-            piece = self._transcribe_piece(session, recording)
-        except Exception:  # noqa: BLE001
-            log.exception("partial chunk failed — audio carried to the next chunk")
-            session.carry = recording.samples
-            return
-        if not piece:
-            return
-        session.pending_text = _append_text(session.pending_text, piece)
-        if not self.can_inject_now():
-            log.debug("partial held back (modifiers down): %r", session.pending_text)
-            return
+    def _flush_live(self, session: _Session) -> bool:
+        """Inject session.pending_text mid-recording. True if it was typed.
+
+        A clipboard fallback from the guarded injector is NOT delivery for a
+        mid-dictation chunk (the next chunk would overwrite the clipboard),
+        so the text stays pending and rides along to the final flush.
+        """
         text = session.pending_text
         payload = (" " if session.injected_parts else "") + text
         try:
-            session.method = self.inject_text(payload)
+            method = self.inject_text(payload)
         except Exception:  # noqa: BLE001 — keep it pending, final flush retries
             log.exception("live injection failed — text kept for the final flush")
-            return
+            return False
+        if "clipboard" in method:
+            log.warning("live chunk fell back to clipboard — text kept for the final flush")
+            return False
+        session.method = method
         session.injected_parts.append(text)
         session.pending_text = ""
-        log.info("live chunk injected (%d chars) via %s", len(text), session.method)
+        log.info("live chunk injected (%d chars) via %s", len(text), method)
+        return True
+
+    def _process_partial(self, session: _Session, payload) -> None:
+        """A live chunk handed over mid-recording. Never changes state (the
+        pill stays in its recording look); never raises (a lost partial must
+        not kill the dictation — its audio is carried into the next chunk,
+        and any exception here would corrupt the RECORDING state)."""
+        try:
+            recording = self._with_carry(session, self.recorder.build_recording(payload))
+        except Exception:  # noqa: BLE001
+            log.exception("chunk build failed — dropped")
+            return
+        try:
+            piece = self._transcribe_piece(session, recording)
+            session.transcribe_failures = 0
+        except Exception:  # noqa: BLE001
+            session.transcribe_failures += 1
+            log.exception(
+                "partial chunk failed (%d in a row) — audio carried to the next chunk",
+                session.transcribe_failures,
+            )
+            session.carry = recording.samples
+            return
+        if piece:
+            session.pending_text = _append_text(session.pending_text, piece)
+        if not session.pending_text or session.cancelled:
+            return  # Esc may have raced the transcription — do NOT type
+        try:
+            safe = self.can_inject_now()
+        except Exception:  # noqa: BLE001
+            log.exception("can_inject_now failed — deferring text to the final flush")
+            safe = False
+        if not safe:
+            log.debug("partial held back (unsafe to type now): %r", session.pending_text)
+            return
+        self._flush_live(session)
 
     def _process_final(self, session: _Session, recording: Recording) -> None:
         recording = self._with_carry(session, recording)
-        had_earlier_text = bool(session.injected_parts or session.pending_text)
-        if (recording.too_short or recording.silent) and not had_earlier_text and not session.raw_parts:
+        # pending/injected text implies raw_parts, so raw_parts alone tells us
+        # whether the session heard anything before this final tail
+        if (recording.too_short or recording.silent) and not session.raw_parts:
             reason = "too short" if recording.too_short else "no speech detected"
             log.info("skipping transcription: %s (device: %s)", reason, recording.device_name)
             self._set_state(State.IDLE, reason)
             return
 
-        piece = self._transcribe_piece(session, recording)
+        piece, error = "", None
+        try:
+            piece = self._transcribe_piece(session, recording)
+        except Exception as exc:  # noqa: BLE001
+            # the final fragment is lost, but text already transcribed or
+            # injected earlier in the session MUST still be delivered/recorded
+            if not session.raw_parts:
+                raise
+            log.exception("final chunk transcription failed — flushing what we have")
+            error = exc
+
         flush = _append_text(session.pending_text, piece)
         session.pending_text = ""
 
@@ -310,8 +361,14 @@ class Controller:
         if flush:
             self._set_state(State.INJECTING)
             payload = (" " if session.injected_parts else "") + flush
-            session.method = self.inject_text(payload)
-            session.injected_parts.append(flush)
+            try:
+                session.method = self.inject_text(payload)
+                session.injected_parts.append(flush)
+            except Exception as exc:  # noqa: BLE001
+                if not session.injected_parts:
+                    raise  # nothing was ever delivered — normal ERROR path
+                log.exception("final injection failed — recording what WAS delivered")
+                error = error or exc
 
         outcome = DictationResult(
             raw_text=" ".join(session.raw_parts),
@@ -326,41 +383,67 @@ class Controller:
             self.on_result(outcome)
         except Exception:
             log.exception("on_result callback failed")
-        self._set_state(State.IDLE, f"injected via {outcome.method}")
+        if error is not None:
+            # part of the dictation landed, part was lost — say so
+            self._set_state(State.ERROR, str(error))
+            self._set_state(State.IDLE)
+        else:
+            self._set_state(State.IDLE, f"injected via {outcome.method}")
 
     # ---- live chunking segmenter ----
+
+    # the full recorder surface live chunking needs — checked as ONE contract
+    # so a recorder that half-implements it can never spawn a segmenter that
+    # silently dies on its first poll
+    _CHUNK_SURFACE = (
+        "take_pending", "build_recording", "pending_seconds",
+        "seconds_since_voice", "voiced_since_drain",
+    )
 
     def _chunking_active(self) -> bool:
         return (
             self.streaming is not None
             and self.streaming.enabled
-            and hasattr(self.recorder, "drain")
+            and all(hasattr(self.recorder, attr) for attr in self._CHUNK_SURFACE)
+        )
+
+    def _session_recording(self, session: _Session) -> bool:
+        return (
+            not session.cancelled
+            and session is self._session
+            and self._state is State.RECORDING
         )
 
     def _segment_loop(self, session: _Session) -> None:
-        """Poll the recorder while this session records; drain at pauses."""
+        """Poll the recorder while this session records; cut chunks at pauses."""
         st = self.streaming
         while not self._stopping:
             time.sleep(0.1)
-            if session.cancelled or session is not self._session or self._state is not State.RECORDING:
+            if not self._session_recording(session):
                 return
-            try:
-                pending = self.recorder.pending_seconds
-                since_voice = self.recorder.seconds_since_voice()
-                voiced = self.recorder.voiced_since_drain
-            except AttributeError:
-                return  # recorder without chunking support
-            if not should_chunk(pending, since_voice, voiced, st):
+            if session.transcribe_failures >= 2:
+                # engine is down — stop hammering it; audio keeps buffering
+                # and the final chunk (with carried audio) surfaces the error
+                log.warning("live chunking paused after repeated transcription failures")
+                return
+            if not should_chunk(
+                self.recorder.pending_seconds,
+                self.recorder.seconds_since_voice(),
+                self.recorder.voiced_since_drain,
+                st,
+            ):
                 continue
-            # drain under the controller lock so a concurrent RECORD_STOP
-            # can't enqueue the final chunk between our drain and our put —
-            # chunk order in the worker queue must match capture order
+            # hand off under the controller lock so a concurrent RECORD_STOP
+            # can't enqueue the final chunk between our take and our put —
+            # chunk order in the worker queue must match capture order.
+            # take_pending() is a cheap buffer swap; the heavy finalize work
+            # happens in the worker via build_recording().
             with self._lock:
-                if session.cancelled or session is not self._session or self._state is not State.RECORDING:
+                if not self._session_recording(session):
                     return
-                rec = self.recorder.drain()
-                if rec is not None and len(rec.samples):
-                    self._jobs.put((session, rec, False))
+                pending = self.recorder.take_pending()
+                if pending:
+                    self._jobs.put((session, pending, False))
 
     # ---- hotkey entry points ----
 

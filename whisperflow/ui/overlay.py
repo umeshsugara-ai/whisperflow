@@ -237,9 +237,11 @@ class Overlay:
 
     def _pulse(self) -> None:
         """Scroll the waveform with the live mic level."""
+        from whisperflow.audio import level_fraction
+
         level = 0.0
         try:
-            level = min(1.0, self.level_source() * 20.0)  # faint mics still visible
+            level = level_fraction(self.level_source())  # faint mics still visible
         except Exception:
             pass
         self._levels.append(level)

@@ -31,8 +31,9 @@ def make_recording(duration=2.0, rms=0.1, too_short=False, silent=False) -> Reco
 
 
 class FakeChunkRecorder:
-    """Chunk-capable fake: the test scripts pending/voice values and the
-    transcript each drained chunk should produce (via the paired engine)."""
+    """Chunk-capable fake implementing the controller's full _CHUNK_SURFACE:
+    the test scripts pending/voice values and the transcript each chunk
+    should produce (via the paired engine)."""
 
     def __init__(self):
         self.pending_seconds = 0.0
@@ -54,11 +55,15 @@ class FakeChunkRecorder:
     def cancel(self) -> None:
         self.cancelled = True
 
-    def drain(self) -> Recording:
+    def take_pending(self):
         self.drained += 1
         self.pending_seconds = 0.0
         self.voiced_since_drain = False
         self._since_voice = float("inf")
+        return ["blocks"]  # opaque handoff token, finalized by build_recording
+
+    def build_recording(self, pending) -> Recording:
+        assert pending == ["blocks"]
         return make_recording()
 
     def arm_chunk(self, pending=5.0, since_voice=1.0) -> None:
@@ -259,6 +264,103 @@ def test_all_silent_session_reports_no_speech():
     assert injected == []
     idle_details = [d for s, d in states if s is State.IDLE]
     assert any("no speech" in d for d in idle_details)
+    ctl.shutdown()
+
+
+def test_partial_clipboard_fallback_defers_text():
+    """A live chunk that falls back to the clipboard is NOT delivered — the
+    text must stay pending and ride along to the final flush (a later chunk
+    would overwrite the clipboard, silently losing the earlier one)."""
+    rec = FakeChunkRecorder()
+    engine = SequenceEngine(["first sentence.", "second sentence."])
+    methods = iter(["clipboard (focus changed)", "type"])
+    injected = []
+    results = []
+
+    def inject(text: str) -> str:
+        injected.append(text)
+        return next(methods)
+
+    ctl = Controller(
+        recorder=rec, engine=engine, inject_text=inject,
+        on_result=lambda r: results.append(r),
+        streaming=StreamingConfig(enabled=True),
+        can_inject_now=lambda: True,
+    )
+    ctl.start()
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    rec.arm_chunk()
+    wait(lambda: len(injected) >= 1)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    # first attempt went to clipboard -> final flush retries the FULL text
+    assert injected == ["first sentence.", "first sentence. second sentence."]
+    assert results[0].injected_text == "first sentence. second sentence."
+    ctl.shutdown()
+
+
+def test_cancel_during_partial_transcription_never_types():
+    """Esc while a chunk is mid-transcription must not type its text later."""
+    rec = FakeChunkRecorder()
+    started = []
+
+    class SlowEngine(SequenceEngine):
+        def transcribe(self, audio, language="", initial_prompt=""):
+            started.append(True)
+            time.sleep(0.3)
+            return super().transcribe(audio, language, initial_prompt)
+
+    engine = SlowEngine(["late text."])
+    ctl, states, results, injected = build(rec, engine)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    rec.arm_chunk()
+    wait(lambda: bool(started))  # transcription in flight
+    ctl.handle_hotkey(HotkeyEvent.RECORD_CANCEL)
+    time.sleep(0.6)  # let the slow transcription finish
+    assert injected == []
+    assert results == []
+    ctl.shutdown()
+
+
+def test_final_error_still_flushes_pending_and_records():
+    """Hold-to-talk: chunk 1 transcribed but held back; the final chunk's
+    transcription fails -> the held text must still be injected + recorded,
+    and the error surfaced afterwards."""
+    rec = FakeChunkRecorder()
+
+    class FinalFailsEngine(SequenceEngine):
+        def transcribe(self, audio, language="", initial_prompt=""):
+            if not self.texts:
+                raise RuntimeError("network died")
+            return super().transcribe(audio, language, initial_prompt)
+
+    engine = FinalFailsEngine(["first sentence."])
+    ctl, states, results, injected = build(rec, engine, can_inject=lambda: False)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    rec.arm_chunk()
+    wait(lambda: len(engine.prompts) >= 1)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert injected == ["first sentence."]  # held text delivered despite the error
+    assert len(results) == 1 and results[0].injected_text == "first sentence."
+    assert any(s is State.ERROR for s, d in states)  # partial loss surfaced
+    assert ctl.state is State.IDLE
+    ctl.shutdown()
+
+
+def test_tiny_final_tail_after_chunks_still_transcribed():
+    """min_seconds is a per-dictation guard: a quick closing word after a
+    chunk boundary must not be silently dropped as 'too short'."""
+    rec = FakeChunkRecorder()
+    rec.final = make_recording(duration=0.2, too_short=True)
+    engine = SequenceEngine(["long sentence.", "thanks."])
+    ctl, states, results, injected = build(rec, engine)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    rec.arm_chunk()
+    wait(lambda: len(injected) >= 1)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert injected == ["long sentence.", " thanks."]
     ctl.shutdown()
 
 

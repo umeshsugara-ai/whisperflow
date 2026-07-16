@@ -827,65 +827,67 @@ class SettingsPage(tk.Frame):
 
         Directly answers "why is nothing transcribing": if the bar stays flat,
         the mic WhisperFlow gets from Windows is silent (wrong default device,
-        a virtual mic like Camo, muted input, or mic privacy settings) — the
-        verdict text says which mic was actually opened so the user can fix it.
+        a virtual mic like Camo, muted input, or mic privacy settings).
+
+        It deliberately runs the REAL capture pipeline — a whisperflow.audio
+        Recorder with the same device resolution, latency settings and
+        silence_rms verdict dictation uses — so a passing test means dictation
+        actually works, not just that some ad-hoc stream heard something.
+        All tkinter calls stay on the tk main thread (a 50ms poll loop reads
+        recorder.last_peak); the worker thread only records.
         """
+        from whisperflow.audio import Recorder, level_fraction
+
         self._mic_test_btn.config(state="disabled")
         self._mic_status.config(text="Listening… say something!", fg=FG_DIM)
         self._mic_level.coords(self._mic_level_bar, 0, 0, 0, 12)
+        shared: dict = {"recorder": None, "verdict": None}
 
         def worker() -> None:
             try:
-                import sounddevice as sd
-
-                from whisperflow.audio import SAMPLE_RATE, device_warning, resolve_device
-
-                device_idx, device_name = resolve_device(self.cfg.audio.device)
-                peak_holder = {"peak": 0.0}
-
-                def cb(indata, frames, time_info, status) -> None:
-                    level = float(abs(indata[:, 0]).max())
-                    peak_holder["peak"] = max(peak_holder["peak"], level)
-                    width = min(1.0, level * 20.0) * 180
-                    self.after(0, lambda w=width: self._mic_level.coords(self._mic_level_bar, 0, 0, w, 12))
-
-                with sd.InputStream(
-                    samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                    device=device_idx, callback=cb,
-                ):
-                    time.sleep(3.0)
-
-                peak = peak_holder["peak"]
-                warn = device_warning(self.cfg.audio.device, device_name)
-                if peak >= 0.01:
-                    text, color = f'✓ Hearing you loud and clear on "{device_name}"', ACCENT_OK
-                elif peak > 0.001:
+                rec = Recorder(self.cfg.audio)
+                rec.start()
+                shared["recorder"] = rec
+                time.sleep(3.0)
+                recording = rec.stop()
+                name = rec.device_name
+                if recording.silent:  # the pipeline's OWN silence decision
                     text, color = (
-                        f'⚠ Very faint signal on "{device_name}" — raise the input volume in '
+                        f'✗ Silence from "{name}" — wrong mic? Check Windows Sound '
+                        "settings (default input device) and Privacy → Microphone access",
+                        ACCENT_ERR,
+                    )
+                elif recording.rms < self.cfg.audio.silence_rms * 20:
+                    text, color = (
+                        f'⚠ Very faint signal on "{name}" — raise the input volume in '
                         "Windows Sound settings (WhisperFlow auto-boosts, but louder is better)",
                         ACCENT_WARN,
                     )
                 else:
-                    text, color = (
-                        f'✗ Silence from "{device_name}" — wrong mic? Check Windows Sound '
-                        "settings (default input device) and Privacy → Microphone access",
-                        ACCENT_ERR,
-                    )
-                if warn:
-                    text += f"\n⚠ {warn}"
+                    text, color = f'✓ Hearing you loud and clear on "{name}"', ACCENT_OK
+                if rec.device_warning:
+                    text += f"\n⚠ {rec.device_warning}"
             except Exception as exc:  # noqa: BLE001 — a mic test must never crash Settings
                 text, color = f"✗ Mic test failed: {exc}", ACCENT_ERR
+            shared["verdict"] = (text, color)
 
-            def done() -> None:
-                try:
-                    self._mic_status.config(text=text, fg=color)
+        def poll() -> None:
+            verdict = shared["verdict"]
+            try:
+                if verdict is not None:
+                    self._mic_status.config(text=verdict[0], fg=verdict[1])
                     self._mic_test_btn.config(state="normal")
-                except tk.TclError:
-                    pass  # user navigated away mid-test
-
-            self.after(0, done)
+                    self._mic_level.coords(self._mic_level_bar, 0, 0, 0, 12)
+                    return
+                rec = shared["recorder"]
+                width = level_fraction(rec.last_peak) * 180 if rec is not None else 0
+                self._mic_level.coords(self._mic_level_bar, 0, 0, width, 12)
+                self.after(50, poll)
+            except tk.TclError:
+                pass  # page destroyed mid-test; the worker finishes on its own
 
         threading.Thread(target=worker, daemon=True).start()
+        poll()
 
     def _toggle_autostart(self) -> None:
         try:

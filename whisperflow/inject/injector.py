@@ -40,9 +40,6 @@ def modifiers_down() -> bool:
     return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MODIFIER_VKS)
 
 
-_modifiers_down = modifiers_down  # backwards-compatible private alias
-
-
 def _wait_modifiers_released(timeout_ms: int) -> None:
     """Block until the user physically releases all modifier keys.
 
@@ -52,7 +49,7 @@ def _wait_modifiers_released(timeout_ms: int) -> None:
     if timeout_ms <= 0:
         return
     deadline = time.monotonic() + timeout_ms / 1000.0
-    while _modifiers_down():
+    while modifiers_down():
         if time.monotonic() >= deadline:
             log.warning(
                 "modifier keys still held after %.1fs — injecting anyway", timeout_ms / 1000.0

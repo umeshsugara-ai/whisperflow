@@ -27,6 +27,13 @@ log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16_000
 
+
+def level_fraction(peak: float) -> float:
+    """Map a raw input peak to a 0..1 UI level — shared by the overlay
+    waveform and the Settings mic-test bar so both tell the same story
+    (the 20x gain keeps faint laptop mics visible)."""
+    return min(1.0, peak * 20.0)
+
 # Virtual mics that exist even when their companion app isn't streaming — they
 # deliver pure silence, and Windows loves silently making them the default
 # (this bit us on 2026-07-07 with "Microphone (Camo)"). We can't refuse to use
@@ -100,13 +107,14 @@ class Recorder:
         self._sample_count = 0
         self.on_max_duration: callable | None = None  # set by controller
         self.last_peak: float = 0.0  # live input level for UI feedback
-        self.device_warning: str = ""  # set at start() when the mic looks wrong
+        self.device_warning: str = ""  # refreshed on every start(); read by the mic test
         self._warned_devices: set[str] = set()  # WARN once per device, then debug
-        # live-chunking state (see drain()): voice activity + pending buffer size
-        self._voice_rms = max(cfg.silence_rms * 4.0, 0.002)
+        self._max_notified = False  # on_max_duration fired for THIS recording
+        # live-chunking state (see take_pending()): peak-based voice activity —
+        # the peak is already computed for the UI, so this adds no per-block work
+        self._voice_peak = max(cfg.silence_rms * 8.0, 0.004)
         self._last_voice: float = 0.0  # monotonic time of last voiced block
         self._voiced_since_drain = False
-        self._pending_samples = 0  # samples buffered since start/last drain
 
     @property
     def device_name(self) -> str:
@@ -123,9 +131,11 @@ class Recorder:
 
     @property
     def pending_seconds(self) -> float:
-        """Audio buffered since start (or the last drain) — chunking watermark."""
+        """Audio buffered since start (or the last take_pending()) — the
+        chunking watermark, derived from the block list itself so it can
+        never drift out of sync with the actual buffer."""
         with self._lock:
-            return self._pending_samples / SAMPLE_RATE
+            return sum(len(b) for b in self._blocks) / SAMPLE_RATE
 
     @property
     def voiced_since_drain(self) -> bool:
@@ -141,21 +151,21 @@ class Recorder:
         if status:
             log.debug("audio status: %s", status)
         # live level for UI feedback (no lock: single float write is atomic)
-        self.last_peak = float(np.abs(indata[:, 0]).max())
-        block_rms = float(np.sqrt(np.mean(indata[:, 0] ** 2)))
-        if block_rms > self._voice_rms:
-            self._last_voice = time.monotonic()
-            self._voiced_since_drain = True
+        peak = float(np.abs(indata[:, 0]).max())
+        self.last_peak = peak
         with self._lock:
+            # voice flag updates inside the lock so take_pending() can't clear
+            # a flag belonging to a block that lands in the NEXT buffer
+            if peak > self._voice_peak:
+                self._last_voice = time.monotonic()
+                self._voiced_since_drain = True
             if self._sample_count >= self._max_samples:
                 return  # cap reached: drop further blocks
             self._blocks.append(indata[:, 0].copy())
             self._sample_count += frames
-            self._pending_samples += frames
-            if self._sample_count >= self._max_samples and self.on_max_duration:
-                # notify once, outside the lock would be nicer but callback is short
-                cb, self.on_max_duration = self.on_max_duration, None
-                threading.Thread(target=cb, daemon=True).start()
+            if self._sample_count >= self._max_samples and not self._max_notified and self.on_max_duration:
+                self._max_notified = True  # once per recording; hook stays wired for the next one
+                threading.Thread(target=self.on_max_duration, daemon=True).start()
 
     def start(self) -> str:
         """Begin capture. Returns the active device name."""
@@ -172,9 +182,9 @@ class Recorder:
         with self._lock:
             self._blocks = []
             self._sample_count = 0
-            self._pending_samples = 0
-        self._last_voice = 0.0
-        self._voiced_since_drain = False
+            self._last_voice = 0.0
+            self._voiced_since_drain = False
+        self._max_notified = False
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=1,
@@ -222,7 +232,6 @@ class Recorder:
 
         with self._lock:
             blocks, self._blocks = self._blocks, []
-            self._pending_samples = 0
 
         rec = self._finalize(blocks)
         log.info(
@@ -234,16 +243,22 @@ class Recorder:
         )
         return rec
 
-    def drain(self) -> Recording | None:
-        """Take the audio buffered so far WITHOUT stopping the stream — the
-        live-chunking path: the controller drains at natural pauses and sends
-        each chunk to STT while the user keeps speaking. None when idle."""
+    def take_pending(self) -> list[np.ndarray] | None:
+        """Swap out the audio buffered so far WITHOUT stopping the stream —
+        the live-chunking handoff. Deliberately CHEAP (a list swap under the
+        lock): the controller calls this while holding its own state lock,
+        so the heavy concatenate/rms/gain work is deferred to
+        build_recording(), which the worker thread runs lock-free.
+        None when idle or nothing is buffered."""
         if self._stream is None:
             return None
         with self._lock:
             blocks, self._blocks = self._blocks, []
-            self._pending_samples = 0
-        self._voiced_since_drain = False
+            self._voiced_since_drain = False
+        return blocks or None
+
+    def build_recording(self, blocks: list[np.ndarray]) -> Recording:
+        """Finalize blocks from take_pending() into a Recording (worker thread)."""
         rec = self._finalize(blocks)
         log.info("chunk drained: %.2fs, rms=%.5f, silent=%s", rec.duration_s, rec.rms, rec.silent)
         return rec
@@ -257,5 +272,4 @@ class Recorder:
         stream.close()
         with self._lock:
             self._blocks = []
-            self._pending_samples = 0
         log.info("recording cancelled")

@@ -26,7 +26,7 @@ from whisperflow.config import DEFAULT_CONFIG_PATH, data_dir, load_config, load_
 from whisperflow.controller import Controller, DictationResult, State
 from whisperflow.dictionary import vocabulary_prompt
 from whisperflow.history import History
-from whisperflow.hotkey import HotkeyListener
+from whisperflow.hotkey import HotkeyEvent, HotkeyListener
 from whisperflow.inject import injector
 from whisperflow.processing import build_processor
 from whisperflow.stt.registry import create_engine
@@ -157,12 +157,14 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
 
     def can_inject_now() -> bool:
         # live partial injection is safe only when no hotkey modifier is held
-        # (hold-to-talk) AND the dictation target still has focus — otherwise
-        # the text waits and flushes with the final chunk
+        # (hold-to-talk) AND a real target window exists and STILL has focus.
+        # No own-window exception: with target=0 the guarded injector would
+        # type into WhisperFlow's own UI, and with a stale target it would
+        # yank foreground focus mid-recording — defer to the final flush.
         if _injector.modifiers_down():
             return False
-        hwnd = focus.current_window()
-        return hwnd == target["hwnd"] or focus.is_own_window(hwnd)
+        hwnd = target["hwnd"]
+        return bool(hwnd) and focus.current_window() == hwnd
 
     ctl = Controller(
         recorder=recorder,
@@ -179,6 +181,10 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
         can_inject_now=can_inject_now,
     )
     ctl.remember_target = remember_target  # called by state handlers on RECORDING
+    # hitting the [audio].max_seconds cap now finishes the dictation instead of
+    # silently dropping everything spoken past it (long live-typed dictations
+    # made that a real risk); the hook re-arms on every recording start
+    recorder.on_max_duration = lambda: ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
 
     def _track_target_while_recording() -> None:
         # keep re-capturing the target for as long as recording is active, so

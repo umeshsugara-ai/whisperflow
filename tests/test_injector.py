@@ -10,7 +10,7 @@ from whisperflow.inject import injector
 
 def test_wait_returns_once_modifiers_released(monkeypatch):
     seq = iter([True, True, False])
-    monkeypatch.setattr(injector, "_modifiers_down", lambda: next(seq))
+    monkeypatch.setattr(injector, "modifiers_down", lambda: next(seq))
     sleeps = []
     monkeypatch.setattr(injector.time, "sleep", lambda s: sleeps.append(s))
     injector._wait_modifiers_released(2000)
@@ -18,7 +18,7 @@ def test_wait_returns_once_modifiers_released(monkeypatch):
 
 
 def test_wait_times_out_and_proceeds(monkeypatch, caplog):
-    monkeypatch.setattr(injector, "_modifiers_down", lambda: True)
+    monkeypatch.setattr(injector, "modifiers_down", lambda: True)
     clock = {"t": 0.0}
     monkeypatch.setattr(injector.time, "monotonic", lambda: clock["t"])
     monkeypatch.setattr(injector.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + 10))
@@ -29,7 +29,7 @@ def test_wait_times_out_and_proceeds(monkeypatch, caplog):
 
 def test_wait_disabled_with_zero_timeout(monkeypatch):
     monkeypatch.setattr(
-        injector, "_modifiers_down", lambda: pytest.fail("must not poll when disabled")
+        injector, "modifiers_down", lambda: pytest.fail("must not poll when disabled")
     )
     injector._wait_modifiers_released(0)
 

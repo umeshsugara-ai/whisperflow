@@ -204,6 +204,7 @@ Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local f
 - **Elevated apps** (Run as administrator): Windows UIPI blocks injection from a non-elevated process. Run WhisperFlow elevated too if you need to dictate into elevated windows.
 - **WSL terminals**: injection uses real unicode key events (not simulated Ctrl+V), which works in Windows Terminal — but if a specific target misbehaves, set `[inject].method = "paste"`.
 - Live typing is pause-based chunking, not true word-by-word streaming: text appears at natural pauses (and once injected it can't be retro-corrected by later context). The final fragment still lands ~1–2.5s after you stop speaking (10s dictation on an RTX 4060).
+- With live typing on, switching windows mid-dictation sends the later chunks to the newly focused window (text follows your cursor, Wispr-style). Chunks that can't be typed safely at the moment (hotkey held, focus mid-switch) wait and flush together at the end.
 
 ## Development
 
