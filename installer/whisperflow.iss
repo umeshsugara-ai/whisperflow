@@ -52,6 +52,19 @@ Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now (first run down
     Flags: nowait postinstall skipifsilent
 
 [Code]
+// Force-close any running WhisperFlow instance BEFORE uninstall touches
+// files — otherwise Windows can't delete the locked exe/DLLs (deferred to
+// next reboot) and the tray icon/pill keeps running, invisible-uninstall.
+// The app has no unsaved in-memory state to lose (history/config are
+// persisted continuously), so a hard kill is safe here.
+function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Exec('taskkill.exe', '/F /IM {#AppExe}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := True;
+end;
+
 // On uninstall, offer the industry-standard "keep my data?" choice for
 // %LOCALAPPDATA%\WhisperFlow (config, dictation history, logs).
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
