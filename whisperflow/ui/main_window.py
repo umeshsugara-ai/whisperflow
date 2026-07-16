@@ -577,19 +577,28 @@ class SettingsPage(tk.Frame):
         self._engine_recommended_id = None  # set lazily in refresh() via sysinfo.recommend()
         self._local_available = True  # set lazily in refresh() — False on a cloud-only build
         engine_holder = row(10, "Speech engine", "Changing engine takes effect after restart.")
+        # dropdown shows friendly display names; map both ways to config ids
+        self._engine_id_by_label = {p.display_name: p.id for p in _stt_providers.all_providers()}
+        self._engine_label_by_id = {v: k for k, v in self._engine_id_by_label.items()}
         self.engine_var = tk.StringVar()
         self._engine_combo = ttk.Combobox(
             engine_holder, textvariable=self.engine_var,
-            values=[p.id for p in _stt_providers.all_providers()],
-            state="readonly", width=32, style="WF.TCombobox",
+            values=list(self._engine_id_by_label),
+            state="readonly", width=44, style="WF.TCombobox",
         )
         self._engine_combo.pack(anchor="w")
         self._engine_combo.bind("<<ComboboxSelected>>", lambda e: self._on_engine_picked())
 
+        badge_row = tk.Frame(engine_holder, bg=BG)
+        badge_row.pack(anchor="w", pady=(4, 0))
+        # colored cost-tier chip (FREE / FREE TO START / PAID) — a native Tk
+        # combobox can't color its dropdown items, so the tier shows here
+        self._engine_chip = tk.Label(badge_row, text="", font=("Segoe UI", 8, "bold"))
+        self._engine_chip.pack(side="left")
         self._engine_badge = tk.Label(
-            engine_holder, text="", bg=BG, fg=FG_DIM, font=("Segoe UI", 8), wraplength=520, justify="left"
+            badge_row, text="", bg=BG, fg=FG_DIM, font=("Segoe UI", 8), wraplength=440, justify="left"
         )
-        self._engine_badge.pack(anchor="w", pady=(2, 0))
+        self._engine_badge.pack(side="left", padx=(8, 0))
 
         self._engine_key_frame = tk.Frame(engine_holder, bg=BG)
         self._engine_key_frame.pack(anchor="w", fill="x", pady=(6, 0))
@@ -639,16 +648,26 @@ class SettingsPage(tk.Frame):
             self._engine_recommended_id = sysinfo.recommend(
                 specs, has_api_key=has_key, local_available=self._local_available
             ).engine
-        self.engine_var.set(self.cfg.model.engine)
+        self.engine_var.set(
+            self._engine_label_by_id.get(self.cfg.model.engine, self.cfg.model.engine)
+        )
         self._on_engine_picked()
 
     def _selected_language(self) -> str:
         label = self.language_var.get()
         return next((v for lb, v in LANGUAGE_CHOICES if lb == label), "")
 
+    def _selected_engine_id(self) -> str:
+        label = self.engine_var.get()
+        return self._engine_id_by_label.get(label, label)
+
     def _on_engine_picked(self) -> None:
-        engine_id = self.engine_var.get()
+        from whisperflow.ui.engine_picker import cost_chip
+
+        engine_id = self._selected_engine_id()
         provider = _stt_providers.get(engine_id)
+        chip = cost_chip(provider)
+        self._engine_chip.config(text=f" {chip['text']} ", bg=chip["bg"], fg=chip["fg"])
         star = "★ Recommended for your PC — " if engine_id == self._engine_recommended_id else ""
         self._engine_badge.config(text=f"{star}{badge_line(provider)}")
         self._render_key_entry(provider)
@@ -761,7 +780,7 @@ class SettingsPage(tk.Frame):
         self.cfg.cleanup.tier = self.tier_var.get()
         self.cfg.overlay.always_visible = self.overlay_var.get()
         self.cfg.overlay.show_hint = self.hint_var.get()
-        new_engine = self.engine_var.get()
+        new_engine = self._selected_engine_id()
         if new_engine == "local" and not self._local_available:
             # Cloud-only build — don't save an engine that can't run here.
             self._status.config(

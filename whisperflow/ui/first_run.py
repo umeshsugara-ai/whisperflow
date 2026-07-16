@@ -15,6 +15,7 @@ import os
 import threading
 import tkinter as tk
 import webbrowser
+from tkinter import ttk
 
 from whisperflow.stt.providers import Provider, get
 
@@ -53,7 +54,7 @@ def show_first_run_chooser(root, specs, rec, path):
     from whisperflow.config import set_env_var
     from whisperflow.stt.registry import local_inference_available
     from whisperflow.sysinfo import build_config_for_engine, build_recommended_config
-    from whisperflow.ui.engine_picker import badge_line, build_rows
+    from whisperflow.ui.engine_picker import badge_line, build_rows, cost_chip
 
     local_ok = local_inference_available()
 
@@ -77,13 +78,20 @@ def show_first_run_chooser(root, specs, rec, path):
     rec_provider = get(rec.engine)
     rec_frame = tk.Frame(win, bg=CARD, padx=14, pady=10)
     rec_frame.pack(fill="x", padx=18, pady=(0, 12))
+    rec_head = tk.Frame(rec_frame, bg=CARD)
+    rec_head.pack(anchor="w", fill="x")
+    rec_chip = cost_chip(rec_provider)
     tk.Label(
-        rec_frame, text=f"★ Recommended for your PC — {rec.reason}",
-        bg=CARD, fg=FG, font=("Segoe UI", 9, "bold"), wraplength=480, justify="left",
-    ).pack(anchor="w")
+        rec_head, text=f" {rec_chip['text']} ", bg=rec_chip["bg"], fg=rec_chip["fg"],
+        font=("Segoe UI", 8, "bold"),
+    ).pack(side="left")
+    tk.Label(
+        rec_head, text=f"★ Recommended for your PC — {rec.reason}",
+        bg=CARD, fg=FG, font=("Segoe UI", 9, "bold"), wraplength=400, justify="left",
+    ).pack(side="left", padx=(8, 0))
     tk.Label(
         rec_frame, text=badge_line(rec_provider), bg=CARD, fg=FG_DIM, font=("Segoe UI", 9),
-    ).pack(anchor="w", pady=(2, 8))
+    ).pack(anchor="w", pady=(4, 8))
 
     def _use_recommended() -> None:
         cfg = build_recommended_config(rec)
@@ -138,25 +146,60 @@ def show_first_run_chooser(root, specs, rec, path):
             return
         _show_key_step(provider)
 
-    for row in build_rows(recommended_id=rec.engine, local_available=local_ok):
-        if row["id"] == rec.engine:
-            continue  # already shown above as the recommended option
-        r = tk.Frame(list_frame, bg=CARD, padx=10, pady=6)
-        r.pack(fill="x", pady=(0, 6))
-        tk.Label(r, text=row["display_name"], bg=CARD, fg=FG, font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        tk.Label(r, text=row["badge"], bg=CARD, fg=FG_DIM, font=("Segoe UI", 8)).pack(anchor="w")
+    # Dropdown + dynamic detail panel: pick a provider from the list, the
+    # panel below updates live with its colored cost chip (FREE / FREE TO
+    # START / PAID — a native Tk combobox can't color individual items, so
+    # the tier is shown here), the exact cost conditions, and a Choose
+    # button that leads into the same key-entry step as before.
+    rows = build_rows(recommended_id=rec.engine, local_available=local_ok)
+    row_by_label = {r["display_name"]: r for r in rows}
+    picker_var = tk.StringVar(value=rec_provider.display_name)
+    picker_combo = ttk.Combobox(
+        list_frame, textvariable=picker_var, values=[r["display_name"] for r in rows],
+        state="readonly", width=44,
+    )
+    picker_combo.pack(anchor="w", pady=(0, 8))
+
+    detail = tk.Frame(list_frame, bg=CARD, padx=12, pady=10)
+    detail.pack(fill="x", pady=(0, 6))
+
+    def _render_detail(*_args) -> None:
+        row = row_by_label[picker_var.get()]
+        provider = get(row["id"])
+        for child in detail.winfo_children():
+            child.destroy()
+        head = tk.Frame(detail, bg=CARD)
+        head.pack(anchor="w", fill="x")
+        chip = cost_chip(provider)
+        tk.Label(
+            head, text=f" {chip['text']} ", bg=chip["bg"], fg=chip["fg"],
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side="left")
+        if row["is_recommended"]:
+            tk.Label(
+                head, text="★ Recommended for your PC", bg=CARD, fg=FG,
+                font=("Segoe UI", 8, "bold"),
+            ).pack(side="left", padx=(8, 0))
+        tk.Label(
+            detail, text=row["badge"], bg=CARD, fg=FG_DIM, font=("Segoe UI", 9),
+            wraplength=460, justify="left",
+        ).pack(anchor="w", pady=(6, 0))
         if row["available"]:
             tk.Button(
-                r, text="Choose", command=lambda pid=row["id"]: _pick(pid),
+                detail, text=f"Choose {provider.display_name}",
+                command=lambda pid=row["id"]: _pick(pid),
                 bg=BTN, fg=FG, relief="flat", padx=8, cursor="hand2",
-            ).pack(anchor="e")
+            ).pack(anchor="w", pady=(8, 0))
         else:
             # Local isn't available in this install — don't let the user
             # pick a dead end, just explain (no dangling call-to-action).
             tk.Label(
-                r, text=row["unavailable_note"], bg=CARD, fg=FG_DIM,
+                detail, text=row["unavailable_note"], bg=CARD, fg=FG_DIM,
                 font=("Segoe UI", 8), wraplength=460, justify="left",
-            ).pack(anchor="w", pady=(2, 0))
+            ).pack(anchor="w", pady=(4, 0))
+
+    picker_combo.bind("<<ComboboxSelected>>", _render_detail)
+    _render_detail()
 
     def _show_key_step(provider: Provider) -> None:
         for child in list_frame.winfo_children():

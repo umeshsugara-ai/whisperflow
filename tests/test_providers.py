@@ -64,7 +64,9 @@ def test_nvidia_is_registered():
     assert p.kind == "nvidia"
     assert p.api_key_env == "NVIDIA_API_KEY"
     assert p.default_model == "parakeet-ctc-1_1b-asr"
-    assert p.cost_tier == "free"
+    # freemium, not free: signup credits run out (unlike Groq/Gemini's
+    # standing free tiers) — the picker chip must say FREE TO START
+    assert p.cost_tier == "freemium"
     assert "English" in p.display_name  # the picker must be honest about the limit
     assert p.max_upload_bytes == 5_000_000
 

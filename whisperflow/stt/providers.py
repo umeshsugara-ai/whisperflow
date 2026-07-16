@@ -118,8 +118,10 @@ PROVIDERS: dict[str, Provider] = {
         # sign-in wall in place and land back here after login (verified
         # live 2026-07-16 — see references/portals/build-nvidia.knowledge.md)
         signup_url="https://build.nvidia.com/settings/api-keys",
-        cost_tier="free",
-        cost_note="Free credits on signup — no card. English dictation only",
+        # freemium, not free: the signup credits run out eventually (unlike
+        # Groq/Gemini's standing free tiers) — the picker chip must say so
+        cost_tier="freemium",
+        cost_note="Free starter credits on signup (no card), paid after they run out. English dictation only",
         quality_tier="better",
         speed_note="Fast",
         setup_steps=(
@@ -132,14 +134,14 @@ PROVIDERS: dict[str, Provider] = {
     ),
     "deepgram": Provider(
         id="deepgram",
-        display_name="Deepgram (paid, best accuracy)",
+        display_name="Deepgram (best accuracy)",
         kind="deepgram",
         base_url="https://api.deepgram.com/v1",
         default_model="nova-3",
         api_key_env="DEEPGRAM_API_KEY",
         signup_url="https://console.deepgram.com",
-        cost_tier="paid",
-        cost_note="$200 free credit, then pay-as-you-go",
+        cost_tier="freemium",
+        cost_note="$200 free credit on signup, pay-as-you-go after",
         quality_tier="best",
         speed_note="Fast",
         setup_steps=(

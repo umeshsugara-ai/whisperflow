@@ -19,6 +19,23 @@ def badge_line(provider: Provider) -> str:
     return f"{privacy} · {cost_icon} {provider.cost_note} · {quality} · {provider.speed_note}"
 
 
+# cost_tier -> (chip text, chip bg, chip fg) — dark-theme colors matching the
+# app palette. A native Tk combobox can't color individual dropdown items on
+# Windows, so the tier is shown as a bold colored chip in the detail panel
+# next to the selection instead.
+CHIP_STYLES: dict[str, tuple[str, str, str]] = {
+    "free": ("FREE", "#1f4d2e", "#7ee2a0"),
+    "freemium": ("FREE TO START", "#4d3a1f", "#f5c778"),
+    "paid": ("PAID", "#4d1f24", "#f08a8f"),
+}
+
+
+def cost_chip(provider: Provider) -> dict:
+    """Colored cost-tier chip for the picker UIs: {text, bg, fg}."""
+    text, bg, fg = CHIP_STYLES[provider.cost_tier]
+    return {"text": text, "bg": bg, "fg": fg}
+
+
 LOCAL_UNAVAILABLE_NOTE = "Not available in this install — pick a free cloud engine instead"
 
 

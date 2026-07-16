@@ -2,7 +2,7 @@
 """Pure view-model helpers for the provider picker (Settings + first-run chooser)."""
 
 from whisperflow.stt import providers
-from whisperflow.ui.engine_picker import badge_line, build_rows
+from whisperflow.ui.engine_picker import badge_line, build_rows, cost_chip
 
 
 def test_badge_line_for_cloud_provider_mentions_cost_and_quality():
@@ -48,6 +48,38 @@ def test_build_rows_all_available_by_default():
     rows = build_rows()
     assert all(r["available"] for r in rows)
     assert all(r["unavailable_note"] == "" for r in rows)
+
+
+def test_cost_chip_free_is_green():
+    chip = cost_chip(providers.get("groq"))
+    assert chip["text"] == "FREE"
+    assert chip["bg"] == "#1f4d2e"
+
+
+def test_cost_chip_freemium_says_free_to_start():
+    # NVIDIA/Deepgram give signup credits that run out — not the same as
+    # Groq/Gemini's standing free tiers, and the chip must not blur that
+    for pid in ("nvidia", "deepgram"):
+        chip = cost_chip(providers.get(pid))
+        assert chip["text"] == "FREE TO START"
+        assert chip["bg"] == "#4d3a1f"
+
+
+def test_cost_chip_paid_is_highlighted_distinctly():
+    chip = cost_chip(providers.get("openai"))
+    assert chip["text"] == "PAID"
+    # paid must be visually distinct from both free tiers
+    free_bg = cost_chip(providers.get("groq"))["bg"]
+    freemium_bg = cost_chip(providers.get("nvidia"))["bg"]
+    assert chip["bg"] not in (free_bg, freemium_bg)
+
+
+def test_cost_chip_every_provider_has_a_valid_tier():
+    # a new provider with a typo'd cost_tier must fail loudly here, not
+    # crash the picker UI at runtime
+    for p in providers.all_providers():
+        chip = cost_chip(p)
+        assert chip["text"] and chip["bg"] and chip["fg"]
 
 
 def test_build_rows_local_unavailable_marks_only_local():
