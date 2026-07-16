@@ -151,6 +151,25 @@ class HotkeyStateMachine:
         return None
 
 
+# Hook-health watchdog tuning. Windows silently destroys WH_KEYBOARD_LL hooks
+# (sleep/resume is the classic trigger; hook-timeout evictions and explorer
+# restarts do it too) — the app then looks alive but never sees a key again.
+# The watchdog notices "no key events for a while", injects an inert probe key
+# (F24 — produces no character, virtually nothing binds it) and, if even the
+# probe isn't seen, tears the hook down and re-installs it.
+PROBE_IDLE_S = 120.0  # any real key event within this window = hook is alive
+PROBE_KEY = "f24"  # what the hook reports the probe as
+PROBE_VK = 0x87  # VK_F24 — injected via raw SendInput
+PROBE_WAIT_S = 1.0  # how long the injected probe may take to reach our handler
+WATCHDOG_TICK_S = 30.0
+
+
+def probe_due(idle_s: float, threshold_s: float = PROBE_IDLE_S) -> bool:
+    """Pure decision: probe only after a real silence window, so an actively
+    typing user never gets probe injections."""
+    return idle_s >= threshold_s
+
+
 class HotkeyListener:
     """Binds HotkeyStateMachine to real keyboard events via `keyboard` lib."""
 
@@ -171,6 +190,9 @@ class HotkeyListener:
         self._down_keys: set[str] = set()
         self._combo_active = False
         self._hooks: list = []
+        self.last_event_monotonic: float = 0.0  # ANY key seen by our handler
+        self._watch_stop = threading.Event()
+        self._watch_thread: threading.Thread | None = None
 
     # `keyboard` lib normalizes "windows" as "windows"/"left windows" etc.
     @staticmethod
@@ -191,8 +213,11 @@ class HotkeyListener:
     def _on_key(self, kb_event) -> None:
         import keyboard as kb  # local import keeps module importable headless
 
-        name = self._normalize(kb_event.name)
         now = time.monotonic()
+        self.last_event_monotonic = now  # hook liveness (single float write: atomic)
+        name = self._normalize(kb_event.name)
+        if name == PROBE_KEY:
+            return  # our own watchdog probe — not user input
         with self._lock:
             if kb_event.event_type == kb.KEY_DOWN:
                 if name == "esc":
@@ -220,15 +245,103 @@ class HotkeyListener:
             self._combo_active = False
         log.info("hotkey listener rebound: combo=%s", combo)
 
+    def rearm(self) -> None:
+        """Tear the OS-level hook down and re-install it.
+
+        The `keyboard` lib starts its WH_KEYBOARD_LL hook thread exactly once
+        (module-global `_listener`, `listening` latches True) and has no
+        public recovery path once Windows destroys the hook — so a fresh
+        listener object is swapped in, forcing hook() to spin up a new hook
+        thread. The old thread, if still alive, keeps running with zero
+        handlers and dispatches nothing (no double events).
+        """
+        import keyboard as kb
+
+        for h in self._hooks:
+            try:
+                kb.unhook(h)
+            except (KeyError, ValueError):
+                pass  # already gone — exactly the state we're recovering from
+        self._hooks.clear()
+        if hasattr(kb, "_listener"):
+            kb._listener = type(kb._listener)()  # noqa: SLF001 — no public API for this
+        with self._lock:
+            self._down_keys.clear()
+            self._combo_active = False
+        self._hooks.append(kb.hook(self._on_key))
+        log.info("keyboard hook re-armed (combo=%s)", self.combo)
+
+    def _probe_hook_alive(self) -> bool:
+        """Inject the inert probe key and check our handler saw it.
+
+        Injection goes through raw SendInput with wVk=F24 (reusing the
+        injector's INPUT plumbing) — the `keyboard` lib's own
+        press_and_release("f24") silently never reaches the hook (its
+        scan-code mapping is broken for high F-keys; verified live), while
+        the raw VK event comes back as a normal ('f24', down/up) pair."""
+        from whisperflow.inject.clipboard import _key_event, _send
+
+        sent_at = time.monotonic()
+        try:
+            _send([_key_event(PROBE_VK), _key_event(PROBE_VK, up=True)])
+        except OSError:
+            log.exception("hook probe injection failed")
+            return True  # can't probe -> don't thrash the hook on bad evidence
+        deadline = sent_at + PROBE_WAIT_S
+        while time.monotonic() < deadline:
+            if self.last_event_monotonic >= sent_at:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def _watchdog(self) -> None:
+        """Detect a dead hook (sleep/resume is the classic killer) and re-arm.
+
+        Cheap when healthy: while the user types, last_event_monotonic stays
+        fresh and the loop does nothing. Only after PROBE_IDLE_S of total key
+        silence does it inject one F24 probe to distinguish "user is idle"
+        from "hook is dead"."""
+        fails = 0  # consecutive dead-probe ticks: log loudly once, then quietly
+        while not self._watch_stop.wait(WATCHDOG_TICK_S):
+            idle_s = time.monotonic() - self.last_event_monotonic
+            if not probe_due(idle_s):
+                fails = 0
+                continue
+            if self._probe_hook_alive():
+                if fails:
+                    log.info("hook re-arm verified — hotkey is live again")
+                fails = 0
+                continue
+            # A focused elevated (admin) window also blocks our probe (UIPI) —
+            # indistinguishable from a dead hook, so re-arming stays correct
+            # (it's cheap and harmless), but only the first tick logs loudly.
+            level = log.warning if fails == 0 else log.debug
+            level(
+                "keyboard hook unresponsive (no events, probe unseen) — re-arming. "
+                "Windows kills low-level hooks across sleep/resume."
+            )
+            fails += 1
+            try:
+                self.rearm()
+            except Exception:  # noqa: BLE001
+                log.exception("hook re-arm failed — will retry on the next tick")
+
     def start(self) -> None:
         import keyboard as kb
 
         self._hooks.append(kb.hook(self._on_key))
+        self.last_event_monotonic = time.monotonic()  # arm the idle clock from "now"
+        self._watch_stop.clear()
+        self._watch_thread = threading.Thread(
+            target=self._watchdog, daemon=True, name="wf-hook-watchdog"
+        )
+        self._watch_thread.start()
         log.info("hotkey listener started: combo=%s", self.combo)
 
     def stop(self) -> None:
         import keyboard as kb
 
+        self._watch_stop.set()
         for h in self._hooks:
             kb.unhook(h)
         self._hooks.clear()

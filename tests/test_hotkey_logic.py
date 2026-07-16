@@ -173,3 +173,74 @@ def test_listener_rebind_swaps_combo_and_resets_chord_state():
     assert listener._keys == ["alt", "windows"]
     assert listener._down_keys == set()  # stale chord state must not leak
     assert listener._combo_active is False
+
+
+# ---- hook-death watchdog (sleep/resume kills WH_KEYBOARD_LL) ----
+
+
+def test_probe_due_only_after_idle_window():
+    from whisperflow.hotkey import PROBE_IDLE_S, probe_due
+
+    assert probe_due(PROBE_IDLE_S) is True
+    assert probe_due(PROBE_IDLE_S + 1) is True
+    assert probe_due(PROBE_IDLE_S - 1) is False
+    assert probe_due(0.0) is False  # actively typing user is never probed
+
+
+def test_rearm_swaps_lib_listener_and_reregisters(monkeypatch):
+    import sys
+    import types
+
+    from whisperflow.hotkey import HotkeyListener
+
+    class FakeListener:
+        pass
+
+    fake_kb = types.SimpleNamespace()
+    fake_kb.KEY_DOWN = "down"
+    fake_kb._listener = FakeListener()
+    hooked: list = []
+    fake_kb.hook = lambda cb: (hooked.append(cb), cb)[1]
+    fake_kb.unhook = lambda h: (_ for _ in ()).throw(KeyError(h))  # dead hook: unhook raises
+    monkeypatch.setitem(sys.modules, "keyboard", fake_kb)
+
+    listener = HotkeyListener("alt+windows", tap_threshold_ms=350, on_event=lambda e: None)
+    listener._hooks = ["stale-handle"]
+    listener._down_keys.add("alt")
+    listener._combo_active = True
+    old_lib_listener = fake_kb._listener
+
+    listener.rearm()
+
+    # a FRESH keyboard-lib listener was swapped in (forces a new OS hook thread)
+    assert fake_kb._listener is not old_lib_listener
+    assert isinstance(fake_kb._listener, FakeListener)
+    # our handler re-registered; stale handle gone despite unhook raising
+    assert hooked == [listener._on_key]
+    assert listener._hooks == [listener._on_key]
+    # chord state reset — a half-pressed combo from before the death can't leak
+    assert listener._down_keys == set()
+    assert listener._combo_active is False
+
+
+def test_on_key_updates_liveness_and_swallows_probe_key(monkeypatch):
+    import sys
+    import types
+
+    from whisperflow.hotkey import PROBE_KEY, HotkeyListener
+
+    fake_kb = types.SimpleNamespace(KEY_DOWN="down", KEY_UP="up")
+    monkeypatch.setitem(sys.modules, "keyboard", fake_kb)
+
+    events: list = []
+    listener = HotkeyListener("alt+windows", tap_threshold_ms=350, on_event=events.append)
+    listener.last_event_monotonic = 0.0
+
+    probe = types.SimpleNamespace(name=PROBE_KEY, event_type="down")
+    listener._on_key(probe)
+    assert listener.last_event_monotonic > 0.0  # probe counts as hook liveness
+    assert listener._down_keys == set()  # ...but never enters chord state
+
+    down = types.SimpleNamespace(name="alt", event_type="down")
+    listener._on_key(down)
+    assert "alt" in listener._down_keys  # real keys still work normally
