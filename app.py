@@ -515,14 +515,28 @@ def _spawn_crash_watchdog(cfg) -> None:
         app_cmd = [sys.executable, str(APP_ROOT / "app.py")]
     app_cmd += ["--config", str(cfg.path)]
     try:
-        subprocess.Popen(  # noqa: S603 — our own binaries/paths
-            [*watchdog_cmd, "--pid", str(os.getpid()), "--data-dir", str(data_dir()), *app_cmd],
+        proc = subprocess.Popen(  # noqa: S603 — our own binaries/paths
+            [*watchdog_cmd, "--pid", str(os.getpid()), "--data-dir", str(data_dir()), "--", *app_cmd],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
             close_fds=True,
         )
-        log.info("crash watchdog armed")
     except OSError:
         log.exception("could not start the crash watchdog — crash auto-restart is off this session")
+        return
+
+    def _verify_alive() -> None:
+        # "armed" must not be a lie: the first shipped watchdog died at spawn
+        # (argparse rejected the relaunch flags) while the log claimed armed
+        time.sleep(2.0)
+        if proc.poll() is not None:
+            log.error(
+                "crash watchdog exited immediately (code %s) — crash auto-restart is OFF this session",
+                proc.returncode,
+            )
+        else:
+            log.info("crash watchdog armed")
+
+    threading.Thread(target=_verify_alive, daemon=True, name="wf-watchdog-verify").start()
 
 
 def _report_recent_crashes() -> None:

@@ -129,8 +129,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pid", type=int, required=True, help="app process id to watch")
     ap.add_argument("--data-dir", required=True, help="WhisperFlow data dir (crash reports + log)")
-    ap.add_argument("cmd", nargs="+", help="command that relaunches the app")
+    # REMAINDER, not nargs="+": the relaunch command carries its own flags
+    # (e.g. --config <path>) which a plain positional would reject as
+    # unknown options — that exact mistake silently killed the first
+    # shipped watchdog at spawn (exit 2, windowed exe, no stderr).
+    ap.add_argument("cmd", nargs=argparse.REMAINDER, help="command that relaunches the app")
     args = ap.parse_args()
+    if args.cmd and args.cmd[0] == "--":
+        args.cmd = args.cmd[1:]
+    if not args.cmd:
+        ap.error("missing relaunch command")
 
     data_dir = Path(args.data_dir)
     crashes = data_dir / "crashes"
