@@ -51,6 +51,43 @@ class Recording:
     silent: bool
 
 
+def list_input_devices(devices=None, hostapis=None) -> list[str]:
+    """Unique input-device names for the Settings mic picker.
+
+    Windows exposes each physical mic once per host API — MME truncates
+    names to 31 chars while WASAPI carries the full name — so prefer the
+    WASAPI rows and dedupe case-insensitively: one row per real mic.
+    Falls back to all-API dedup on platforms without WASAPI. The
+    devices/hostapis params exist for unit tests; production callers pass
+    nothing and get a live sounddevice query.
+    """
+    try:
+        if devices is None:
+            devices = sd.query_devices()
+        if hostapis is None:
+            hostapis = sd.query_hostapis()
+    except Exception:  # noqa: BLE001 — a broken audio stack must not kill Settings
+        log.warning("could not enumerate input devices", exc_info=True)
+        return []
+
+    def rows(wasapi_only: bool) -> list[str]:
+        seen: set[str] = set()
+        names: list[str] = []
+        for dev in devices:
+            if dev["max_input_channels"] <= 0:
+                continue
+            api = hostapis[dev["hostapi"]]["name"].lower()
+            if wasapi_only and "wasapi" not in api:
+                continue
+            key = dev["name"].lower()
+            if key not in seen:
+                seen.add(key)
+                names.append(dev["name"])
+        return names
+
+    return rows(True) or rows(False)
+
+
 def resolve_device(preference: str) -> tuple[int | None, str]:
     """Return (device_index_or_None_for_default, human_name).
 
@@ -88,8 +125,8 @@ def device_warning(preference: str, resolved_name: str) -> str:
         if hint in lowered:
             return (
                 f'"{resolved_name}" is a virtual mic — it records silence unless '
-                "its companion app is streaming. Pick your real mic in Windows "
-                "Sound settings or pin it via [audio].device"
+                "its companion app is streaming. Pick your real mic in "
+                "Settings → Microphone"
             )
     return ""
 
@@ -115,6 +152,14 @@ class Recorder:
         self._voice_peak = max(cfg.silence_rms * 8.0, 0.004)
         self._last_voice: float = 0.0  # monotonic time of last voiced block
         self._voiced_since_drain = False
+
+    def set_config(self, cfg: AudioConfig) -> None:
+        """Swap the audio config live (Settings save / tray file reload).
+        Derived thresholds are recomputed; the device change takes effect on
+        the next recording start (start() re-resolves it every time)."""
+        self.cfg = cfg
+        self._max_samples = int(cfg.max_seconds * SAMPLE_RATE)
+        self._voice_peak = max(cfg.silence_rms * 8.0, 0.004)
 
     @property
     def device_name(self) -> str:

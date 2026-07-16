@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from whisperflow.ui.history_view import filter_entries
-from whisperflow.ui.main_window import format_count, humanize_ts
+from whisperflow.ui.main_window import (
+    MIC_DEFAULT_LABEL,
+    format_count,
+    humanize_ts,
+    mic_choice_to_config,
+    mic_config_to_choice,
+)
 
 ENTRIES = [
     {"raw": "kya haal hai", "injected": "Kya haal hai."},
@@ -28,6 +34,17 @@ def test_format_count():
     assert format_count(9_999) == "9,999"
     assert format_count(48_900) == "48.9K"
     assert format_count(2_500_000) == "2.5M"
+
+
+def test_mic_choice_round_trip():
+    # the follow-Windows row maps to "default" and back
+    assert mic_choice_to_config(MIC_DEFAULT_LABEL) == "default"
+    assert mic_config_to_choice("default") == MIC_DEFAULT_LABEL
+    assert mic_config_to_choice("DEFAULT") == MIC_DEFAULT_LABEL
+    assert mic_config_to_choice("") == MIC_DEFAULT_LABEL
+    # a real device name passes through untouched
+    assert mic_choice_to_config("Realtek(R) Audio") == "Realtek(R) Audio"
+    assert mic_config_to_choice("Realtek(R) Audio") == "Realtek(R) Audio"
 
 
 def test_humanize_ts():

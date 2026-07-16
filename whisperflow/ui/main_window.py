@@ -67,6 +67,19 @@ TIER_CHOICES = (
     ("LLM (Ollama, local)", "llm"),
     ("LLM (Gemini cloud — text only)", "gemini"),
 )
+MIC_DEFAULT_LABEL = "System default (follow Windows)"
+
+
+def mic_choice_to_config(label: str) -> str:
+    """Dropdown label -> [audio].device value ("default" for the follow-
+    Windows row, else the device name itself — resolve_device() substring-
+    matches it)."""
+    return "default" if label == MIC_DEFAULT_LABEL else label
+
+
+def mic_config_to_choice(device: str) -> str:
+    """[audio].device value -> dropdown label."""
+    return MIC_DEFAULT_LABEL if not device or device.lower() == "default" else device
 
 
 def format_count(n: int) -> str:
@@ -605,10 +618,22 @@ class SettingsPage(tk.Frame):
 
         mic_holder = row(
             12, "Microphone",
-            "3-second listen test — if the bar doesn't move, Windows is giving us a silent/wrong mic.",
+            "Pick your mic, then Test — if the bar doesn't move, that device is silent (wrong/virtual mic).",
         )
+        # dropdown of real input devices — fixes the wrong-default-mic trap
+        # (e.g. Windows silently making virtual "Microphone (Camo)" the
+        # default) without sending users hunting through Windows Sound
+        # settings. "System default" keeps the follow-Windows behavior.
+        self.mic_var = tk.StringVar()
+        self._mic_combo = ttk.Combobox(
+            mic_holder, textvariable=self.mic_var, values=[MIC_DEFAULT_LABEL],
+            state="readonly", width=44, style="WF.TCombobox",
+            postcommand=self._refresh_mic_choices,
+        )
+        self._mic_combo.pack(anchor="w")
+        self._mic_combo.bind("<<ComboboxSelected>>", lambda e: self._on_mic_picked())
         mic_row = tk.Frame(mic_holder, bg=BG)
-        mic_row.pack(anchor="w")
+        mic_row.pack(anchor="w", pady=(6, 0))
         self._mic_test_btn = _button(mic_row, "Test mic", self._test_mic)
         self._mic_test_btn.pack(side="left")
         self._mic_level = tk.Canvas(
@@ -693,6 +718,7 @@ class SettingsPage(tk.Frame):
         self.overlay_var.set(self.cfg.overlay.always_visible)
         self.hint_var.set(self.cfg.overlay.show_hint)
         self.autostart_var.set(sysinfo.is_autostart_enabled())
+        self.mic_var.set(mic_config_to_choice(self.cfg.audio.device))
         m = self.cfg.model
         model_name = m.cloud_model if m.engine != "local" else m.name
         self._model_line.config(
@@ -822,8 +848,33 @@ class SettingsPage(tk.Frame):
         save_btn = _button(key_row, "Save key", _save_key)
         save_btn.pack(side="left", padx=(6, 0))
 
+    def _refresh_mic_choices(self) -> None:
+        """Re-enumerate input devices every time the dropdown opens — a
+        headset plugged in after Settings opened must show up without a
+        page reload."""
+        from whisperflow.audio import list_input_devices
+
+        current = self.mic_var.get()
+        names = list_input_devices()
+        values = [MIC_DEFAULT_LABEL] + names
+        # a pinned mic that's currently unplugged still needs to be pickable/visible
+        if current and current not in values:
+            values.append(current)
+        self._mic_combo.config(values=values)
+
+    def _on_mic_picked(self) -> None:
+        from whisperflow.audio import device_warning
+
+        label = self.mic_var.get()
+        warning = "" if label == MIC_DEFAULT_LABEL else device_warning("default", label)
+        if warning:
+            self._mic_status.config(text=f"⚠ {warning}", fg=ACCENT_WARN)
+        else:
+            self._mic_status.config(text="Hit Test mic, then Save to keep this mic.", fg=FG_DIM)
+
     def _test_mic(self) -> None:
-        """3-second live listen on the configured mic with a moving level bar.
+        """3-second live listen on the mic SELECTED in the dropdown (not yet
+        saved) with a moving level bar — pick, test, then Save what works.
 
         Directly answers "why is nothing transcribing": if the bar stays flat,
         the mic WhisperFlow gets from Windows is silent (wrong default device,
@@ -836,16 +887,19 @@ class SettingsPage(tk.Frame):
         All tkinter calls stay on the tk main thread (a 50ms poll loop reads
         recorder.last_peak); the worker thread only records.
         """
+        from dataclasses import replace
+
         from whisperflow.audio import Recorder, level_fraction
 
         self._mic_test_btn.config(state="disabled")
         self._mic_status.config(text="Listening… say something!", fg=FG_DIM)
         self._mic_level.coords(self._mic_level_bar, 0, 0, 0, 12)
         shared: dict = {"recorder": None, "verdict": None}
+        test_cfg = replace(self.cfg.audio, device=mic_choice_to_config(self.mic_var.get()))
 
         def worker() -> None:
             try:
-                rec = Recorder(self.cfg.audio)
+                rec = Recorder(test_cfg)
                 rec.start()
                 shared["recorder"] = rec
                 time.sleep(3.0)
@@ -853,8 +907,9 @@ class SettingsPage(tk.Frame):
                 name = rec.device_name
                 if recording.silent:  # the pipeline's OWN silence decision
                     text, color = (
-                        f'✗ Silence from "{name}" — wrong mic? Check Windows Sound '
-                        "settings (default input device) and Privacy → Microphone access",
+                        f'✗ Silence from "{name}" — pick a different mic in the '
+                        "dropdown above and re-test. Still flat on every mic? Check "
+                        "Windows Privacy → Microphone access",
                         ACCENT_ERR,
                     )
                 elif recording.rms < self.cfg.audio.silence_rms * 20:
@@ -902,11 +957,15 @@ class SettingsPage(tk.Frame):
         old = (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
                self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
                self.cfg.model.cloud_model, self.cfg.model.api_key_env, self.cfg.model.name,
-               self.cfg.model.device, self.cfg.model.compute_type, self.cfg.streaming.enabled)
+               self.cfg.model.device, self.cfg.model.compute_type, self.cfg.streaming.enabled,
+               self.cfg.audio.device)
         self.cfg.hotkey.combo = self.hotkey_var.get()
         self.cfg.model.language = self._selected_language()
         self.cfg.cleanup.tier = self.tier_var.get()
         self.cfg.streaming.enabled = self.streaming_var.get()
+        # applies live: the Recorder holds this same AudioConfig object and
+        # re-resolves the device at every recording start
+        self.cfg.audio.device = mic_choice_to_config(self.mic_var.get())
         self.cfg.overlay.always_visible = self.overlay_var.get()
         self.cfg.overlay.show_hint = self.hint_var.get()
         new_engine = self._selected_engine_id()
@@ -947,7 +1006,8 @@ class SettingsPage(tk.Frame):
             (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,
              self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
              self.cfg.model.cloud_model, self.cfg.model.api_key_env, self.cfg.model.name,
-             self.cfg.model.device, self.cfg.model.compute_type, self.cfg.streaming.enabled) = old
+             self.cfg.model.device, self.cfg.model.compute_type, self.cfg.streaming.enabled,
+             self.cfg.audio.device) = old
             self._status.config(text=str(exc), fg=ACCENT_ERR)
             return
         self._status.config(text="Saved ✓ — applied", fg=ACCENT_OK)

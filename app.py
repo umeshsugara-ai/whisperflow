@@ -337,6 +337,10 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         ctl.initial_prompt = vocabulary_prompt(cfg.dictionary)
         ctl.language = cfg.model.language
         ctl.streaming = cfg.streaming
+        # the Recorder re-resolves its device at every recording start; hand it
+        # the current AudioConfig so a mic picked in Settings (in-place
+        # mutation) AND a tray file-reload (object replacement) both take effect
+        ctl.recorder.set_config(cfg.audio)
         listener.rebind(cfg.hotkey.combo)
         overlay.persistent = cfg.overlay.always_visible
         overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)

@@ -379,6 +379,36 @@ def test_device_warning_flags_fallback_and_virtual_mics():
     assert device_warning("Realtek", "Realtek(R) Audio Microphone") == ""
 
 
+def test_list_input_devices_prefers_wasapi_and_dedupes():
+    from whisperflow.audio import list_input_devices
+
+    hostapis = [{"name": "MME"}, {"name": "Windows WASAPI"}]
+    devices = [
+        # MME truncates to 31 chars and lists the same mic again
+        {"name": "Microphone (Realtek(R) Audio)", "max_input_channels": 2, "hostapi": 0},
+        {"name": "Microphone (Realtek(R) Audio)", "max_input_channels": 2, "hostapi": 1},
+        {"name": "Microphone (Camo)", "max_input_channels": 1, "hostapi": 1},
+        # outputs never show up
+        {"name": "Speakers (Realtek(R) Audio)", "max_input_channels": 0, "hostapi": 1},
+    ]
+    assert list_input_devices(devices, hostapis) == [
+        "Microphone (Realtek(R) Audio)",
+        "Microphone (Camo)",
+    ]
+
+
+def test_list_input_devices_falls_back_without_wasapi():
+    from whisperflow.audio import list_input_devices
+
+    hostapis = [{"name": "Core Audio"}]
+    devices = [
+        {"name": "Built-in Microphone", "max_input_channels": 1, "hostapi": 0},
+        {"name": "built-in microphone", "max_input_channels": 1, "hostapi": 0},
+    ]
+    # no WASAPI rows -> all-API dedup (case-insensitive)
+    assert list_input_devices(devices, hostapis) == ["Built-in Microphone"]
+
+
 def test_idle_flash_covers_silent_and_short_outcomes():
     assert idle_flash("no speech detected") == ("warn", "No speech — check mic ⚠")
     assert idle_flash("too short") == ("warn", "Too short — hold & speak")

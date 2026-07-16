@@ -81,7 +81,7 @@ Windows 10/11 only. You need a **microphone** and **Python 3.11+** (3.13 recomme
    ```
    Creates a Start Menu entry that opens the product window (not a console) — right-click it → **Pin to taskbar**. Pass `-Name "yourName"` to customize the label, e.g. `-File scripts\create_shortcut.ps1 -Name "myWhisperFlow"`.
 
-**If dictation types nothing** (pill opens and closes, flat waveform, "No speech — check mic ⚠" flash): open the app window → **Settings → Microphone → Test mic**. If the bar stays flat, Windows is handing WhisperFlow a silent or wrong input device — usually a virtual mic (e.g. "Microphone (Camo)", which records silence unless the Camo app is streaming) that Windows quietly made the default. Fix: Windows → Sound → **Input** → pick your real mic as default (and confirm it isn't muted/at 0 and the Test bar moves when you speak), or pin it by name via `[audio].device` in config.toml. Also check Settings → Privacy & security → Microphone → "Let desktop apps access your microphone". The verdict under Test mic names the exact device WhisperFlow opened, and warns when a pinned mic wasn't found or a known-virtual mic is in use.
+**If dictation types nothing** (pill opens and closes, flat waveform, "No speech — check mic ⚠" flash): open the app window → **Settings → Microphone** — pick your real mic from the dropdown, hit **Test mic**, and Save when the bar moves. The usual culprit is Windows quietly making a virtual mic the default (e.g. "Microphone (Camo)", which records silence unless the Camo app is streaming); picking your physical mic in the dropdown pins it, no Windows Sound hunting needed. If the bar stays flat on *every* mic, check Windows Settings → Privacy & security → Microphone → "Let desktop apps access your microphone", and that input volume isn't 0. The verdict under Test mic names the exact device WhisperFlow opened, and warns when a pinned mic wasn't found or a known-virtual mic is in use.
 
 ### Set up with Claude Code
 
@@ -123,7 +123,7 @@ launch opens it automatically:
 - **Home** — lifetime stats (total words, average WPM, day streak, dictations), a plain-language status strip ("All good ✓" or recent warnings), and your latest dictations with one-click copy.
 - **History** — searchable list of every dictation with the RAW and cleaned text side by side.
 - **Dictionary** — add vocabulary words and "when I say → write instead" rules; saved straight to config.toml.
-- **Settings** — hotkey, language, cleanup tier, live typing, overlay pill, start-on-login, and a **Test mic** button with a live level bar (the 10-second answer to "why is nothing transcribing"). No config-file editing needed; restart-required fields say so.
+- **Settings** — hotkey, language, cleanup tier, live typing, overlay pill, start-on-login, a **microphone picker** (dropdown of your real input devices) and a **Test mic** button with a live level bar (the 10-second answer to "why is nothing transcribing"). No config-file editing needed — everything applies on Save, no restart.
 
 Closing the window just hides it — WhisperFlow keeps running in the tray.
 
@@ -209,7 +209,7 @@ Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local f
 ## Development
 
 ```powershell
-python -m pytest tests/ -q          # 198 unit tests
+python -m pytest tests/ -q          # 215 unit tests
 python scripts/test_inject.py --self-test
 python scripts/test_overlay.py --cycle
 python scripts/test_stt.py --smoke
