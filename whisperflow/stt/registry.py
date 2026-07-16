@@ -43,6 +43,22 @@ def _try_import_faster_whisper() -> None:
     import faster_whisper  # noqa: F401
 
 
+def local_inference_available() -> bool:
+    """True if this build can actually run the local (on-device) engine right
+    now — faster_whisper is importable (dev checkout or WF_BUILD=full build)
+    or the on-demand pack is already installed. False on a cloud-only
+    installer that never bundled local inference. Used by the engine picker
+    to honestly show/hide Local instead of letting a user pick a dead end."""
+    try:
+        _try_import_faster_whisper()
+        return True
+    except ImportError:
+        pass
+    from whisperflow import localpack
+
+    return localpack.is_installed()
+
+
 def _ensure_local_available() -> None:
     """No-op on a dev checkout or WF_BUILD=full frozen build, where
     faster_whisper is already importable. On a WF_BUILD=cloud build with no

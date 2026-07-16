@@ -30,7 +30,7 @@ def test_bootstrap_config_wires_api_key_env_for_recommended_cloud_provider(tmp_p
     from whisperflow import sysinfo
     from whisperflow.sysinfo import Recommendation
 
-    def fake_recommend(specs, has_api_key=False):
+    def fake_recommend(specs, has_api_key=False, local_available=True):
         assert has_api_key is True  # proves the GROQ-only env was detected
         return Recommendation(
             engine="groq",

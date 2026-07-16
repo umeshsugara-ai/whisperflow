@@ -219,3 +219,26 @@ def test_build_config_for_engine_cloud_uses_provider_default():
     assert cfg.model.engine == "openai"
     assert cfg.model.cloud_model == "gpt-4o-transcribe"
     assert cfg.model.api_key_env == "OPENAI_API_KEY"
+
+
+def test_recommend_cloud_only_build_never_recommends_local_even_with_gpu(monkeypatch):
+    # a strong GPU can't run a model that isn't in this (cloud-only) build
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    rec = recommend(specs(vram_mb=8192, gpu="RTX 4060"), local_available=False)
+    assert rec.engine == "groq"
+    assert "Full installer" in rec.reason
+
+
+def test_recommend_cloud_only_build_with_existing_key_uses_that_provider(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    rec = recommend(specs(vram_mb=8192, gpu="RTX 4060"), has_api_key=True, local_available=False)
+    assert rec.engine == "gemini"
+
+
+def test_recommend_local_available_default_unchanged(monkeypatch):
+    # default local_available=True keeps the existing hardware-ladder behavior
+    rec = recommend(specs(vram_mb=8192, gpu="RTX 4060"))
+    assert rec.engine == "local"
+    assert rec.name == "large-v3-turbo"

@@ -574,6 +574,7 @@ class SettingsPage(tk.Frame):
         ).pack(anchor="w")
 
         self._engine_recommended_id = None  # set lazily in refresh() via sysinfo.recommend()
+        self._local_available = True  # set lazily in refresh() — False on a cloud-only build
         engine_holder = row(10, "Speech engine", "Changing engine takes effect after restart.")
         self.engine_var = tk.StringVar()
         self._engine_combo = ttk.Combobox(
@@ -627,11 +628,16 @@ class SettingsPage(tk.Frame):
         )
         self._update_banner()
         if self._engine_recommended_id is None:
+            from whisperflow.stt import registry
+
+            self._local_available = registry.local_inference_available()
             specs = sysinfo.probe()
             has_key = any(
                 os.environ.get(p.api_key_env) for p in _stt_providers.cloud_providers() if p.api_key_env
             )
-            self._engine_recommended_id = sysinfo.recommend(specs, has_api_key=has_key).engine
+            self._engine_recommended_id = sysinfo.recommend(
+                specs, has_api_key=has_key, local_available=self._local_available
+            ).engine
         self.engine_var.set(self.cfg.model.engine)
         self._on_engine_picked()
 
@@ -650,6 +656,19 @@ class SettingsPage(tk.Frame):
         for child in self._engine_key_frame.winfo_children():
             child.destroy()
         if provider.kind == "local":
+            if not self._local_available:
+                from whisperflow.ui.engine_picker import LOCAL_UNAVAILABLE_NOTE
+
+                tk.Label(
+                    self._engine_key_frame, text=LOCAL_UNAVAILABLE_NOTE, bg=BG, fg=ACCENT_WARN,
+                    font=("Segoe UI", 9), wraplength=520, justify="left",
+                ).pack(anchor="w")
+                _button(
+                    self._engine_key_frame, "Get the Full installer →",
+                    lambda: webbrowser.open(
+                        "https://github.com/umeshsugara-ai/whisperflow/releases/latest"
+                    ),
+                ).pack(anchor="w", pady=(4, 0))
             return
         already_set = bool(os.environ.get(provider.api_key_env))
         if already_set:
@@ -719,6 +738,13 @@ class SettingsPage(tk.Frame):
         self.cfg.overlay.always_visible = self.overlay_var.get()
         self.cfg.overlay.show_hint = self.hint_var.get()
         new_engine = self.engine_var.get()
+        if new_engine == "local" and not self._local_available:
+            # Cloud-only build — don't save an engine that can't run here.
+            self._status.config(
+                text="Local isn't available in this install — get the Full installer.",
+                fg=ACCENT_ERR,
+            )
+            return
         if new_engine != self.cfg.model.engine:
             # Engine actually changed: rebuild cloud_model/api_key_env (and
             # local name/device/compute_type) from the registry/hardware —

@@ -19,14 +19,30 @@ def badge_line(provider: Provider) -> str:
     return f"{privacy} · {cost_icon} {provider.cost_note} · {quality} · {provider.speed_note}"
 
 
-def build_rows(recommended_id: str | None = None) -> list[dict]:
-    """One row per registered provider, in registry order."""
-    return [
-        {
-            "id": p.id,
-            "display_name": p.display_name,
-            "badge": badge_line(p),
-            "is_recommended": p.id == recommended_id,
-        }
-        for p in all_providers()
-    ]
+LOCAL_UNAVAILABLE_NOTE = (
+    "Not included in this install — get the Full installer for offline on-device mode"
+)
+
+
+def build_rows(recommended_id: str | None = None, local_available: bool = True) -> list[dict]:
+    """One row per registered provider, in registry order.
+
+    `local_available=False` (a cloud-only build) marks the Local row
+    unavailable with a note, so the UI can show it honestly ('needs the Full
+    installer') instead of letting the user pick a dead end. Every cloud
+    provider is always available.
+    """
+    rows = []
+    for p in all_providers():
+        available = local_available if p.kind == "local" else True
+        rows.append(
+            {
+                "id": p.id,
+                "display_name": p.display_name,
+                "badge": badge_line(p),
+                "is_recommended": p.id == recommended_id,
+                "available": available,
+                "unavailable_note": "" if available else LOCAL_UNAVAILABLE_NOTE,
+            }
+        )
+    return rows

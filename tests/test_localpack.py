@@ -187,3 +187,33 @@ def test_registry_local_dispatch_fails_fast_when_pack_missing(monkeypatch):
     with pytest.raises(RuntimeError, match="one-time download"):
         registry._ensure_local_available()
     assert called["ensure"] is False  # must NOT have attempted a download
+
+
+def test_local_inference_available_true_when_faster_whisper_importable():
+    """Dev/full build: faster_whisper is a real project dependency, so this
+    exercises the real 'available' branch."""
+    from whisperflow.stt import registry
+
+    assert registry.local_inference_available() is True
+
+
+def test_local_inference_available_false_on_cloud_build_without_pack(monkeypatch):
+    from whisperflow.stt import registry
+
+    def fake_import():
+        raise ImportError("simulated cloud build")
+
+    monkeypatch.setattr(registry, "_try_import_faster_whisper", fake_import)
+    monkeypatch.setattr(localpack, "is_installed", lambda: False)
+    assert registry.local_inference_available() is False
+
+
+def test_local_inference_available_true_on_cloud_build_with_pack(monkeypatch):
+    from whisperflow.stt import registry
+
+    def fake_import():
+        raise ImportError("simulated cloud build")
+
+    monkeypatch.setattr(registry, "_try_import_faster_whisper", fake_import)
+    monkeypatch.setattr(localpack, "is_installed", lambda: True)
+    assert registry.local_inference_available() is True

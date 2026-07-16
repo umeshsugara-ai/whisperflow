@@ -25,6 +25,9 @@ FG_DIM = "#9a938a"
 BTN = "#3a3733"
 ACCENT_OK = "#5cb85c"
 
+# Where to send a user who wants Local on a cloud-only install.
+FULL_INSTALLER_URL = "https://github.com/umeshsugara-ai/whisperflow/releases/latest"
+
 
 def provider_already_has_key(provider: Provider) -> bool:
     """True if the user already has this provider's API key in the
@@ -39,8 +42,11 @@ def show_first_run_chooser(root, specs, rec, path):
     """Blocking modal. Returns the Config the user confirmed — either the
     recommendation or a manual pick — already saved to `path`."""
     from whisperflow.config import set_env_var
+    from whisperflow.stt.registry import local_inference_available
     from whisperflow.sysinfo import build_config_for_engine, build_recommended_config
     from whisperflow.ui.engine_picker import badge_line, build_rows
+
+    local_ok = local_inference_available()
 
     win = tk.Toplevel(root)
     win.title("Welcome to WhisperFlow")
@@ -95,17 +101,30 @@ def show_first_run_chooser(root, specs, rec, path):
             return
         _show_key_step(provider)
 
-    for row in build_rows(recommended_id=rec.engine):
+    for row in build_rows(recommended_id=rec.engine, local_available=local_ok):
         if row["id"] == rec.engine:
             continue  # already shown above as the recommended option
         r = tk.Frame(list_frame, bg=CARD, padx=10, pady=6)
         r.pack(fill="x", pady=(0, 6))
         tk.Label(r, text=row["display_name"], bg=CARD, fg=FG, font=("Segoe UI", 9, "bold")).pack(anchor="w")
         tk.Label(r, text=row["badge"], bg=CARD, fg=FG_DIM, font=("Segoe UI", 8)).pack(anchor="w")
-        tk.Button(
-            r, text="Choose", command=lambda pid=row["id"]: _pick(pid),
-            bg=BTN, fg=FG, relief="flat", padx=8, cursor="hand2",
-        ).pack(anchor="e")
+        if row["available"]:
+            tk.Button(
+                r, text="Choose", command=lambda pid=row["id"]: _pick(pid),
+                bg=BTN, fg=FG, relief="flat", padx=8, cursor="hand2",
+            ).pack(anchor="e")
+        else:
+            # Local on a cloud-only install: don't let the user pick a dead
+            # end — explain and point them at the Full installer instead.
+            tk.Label(
+                r, text=row["unavailable_note"], bg=CARD, fg=ACCENT_OK,
+                font=("Segoe UI", 8), wraplength=460, justify="left",
+            ).pack(anchor="w", pady=(2, 0))
+            tk.Button(
+                r, text="Get the Full installer →",
+                command=lambda: webbrowser.open(FULL_INSTALLER_URL),
+                bg=BTN, fg=FG, relief="flat", padx=8, cursor="hand2",
+            ).pack(anchor="e")
 
     def _show_key_step(provider: Provider) -> None:
         for child in list_frame.winfo_children():

@@ -374,6 +374,14 @@ def _any_cloud_api_key_available() -> bool:
     return any(os.environ.get(p.api_key_env) for p in providers.cloud_providers() if p.api_key_env)
 
 
+def _local_inference_available() -> bool:
+    """True if this build can run the local engine — so recommend() doesn't
+    suggest Local on a cloud-only install where it can't work."""
+    from whisperflow.stt import registry
+
+    return registry.local_inference_available()
+
+
 def bootstrap_config(path: Path):
     """First run with no config.toml (installed build, or --headless):
     probe the hardware, generate a config from the recommendation, and save
@@ -383,7 +391,7 @@ def bootstrap_config(path: Path):
     from whisperflow.config import save_config
 
     specs = sysinfo.probe()
-    rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available())
+    rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available(), local_available=_local_inference_available())
     cfg = sysinfo.build_recommended_config(rec)
     cfg.path = path
     save_config(cfg, path)
@@ -401,7 +409,7 @@ def print_recommendation() -> int:
 
     specs = sysinfo.probe()
     has_key = _any_cloud_api_key_available()
-    rec = sysinfo.recommend(specs, has_api_key=has_key)
+    rec = sysinfo.recommend(specs, has_api_key=has_key, local_available=_local_inference_available())
 
     print("System detected:")
     print(f"  GPU : {specs.gpu_name or 'none (no NVIDIA GPU found)'}"
@@ -484,7 +492,7 @@ def main() -> int:
             first_run_root = tk.Tk()
             first_run_root.withdraw()
             specs = sysinfo.probe()
-            rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available())
+            rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available(), local_available=_local_inference_available())
             cfg = show_first_run_chooser(first_run_root, specs, rec, cfg_path)
             log.info("first run — user chose %s via the chooser dialog", cfg.model.engine)
     else:
@@ -536,7 +544,7 @@ def main() -> int:
             cfg.model.engine,
         )
         specs = sysinfo.probe()
-        rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available())
+        rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available(), local_available=_local_inference_available())
         cfg = show_first_run_chooser(root, specs, rec, cfg_path)
         try:
             ctl, listener, history = build_controller(cfg)

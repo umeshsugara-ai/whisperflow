@@ -234,7 +234,9 @@ def _detect_cloud_provider() -> str:
     return "groq"
 
 
-def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
+def recommend(
+    specs: SystemSpecs, has_api_key: bool = False, local_available: bool = True
+) -> Recommendation:
     """Best model for THIS machine. Ladder:
 
     - NVIDIA >=5GB VRAM  -> large-v3-turbo cuda int8_float16 (proven default)
@@ -244,7 +246,27 @@ def recommend(specs: SystemSpecs, has_api_key: bool = False) -> Recommendation:
     - Weak machine       -> BYOK cloud (Groq is the primary free-cloud
                             recommendation) if a key is available, else
                             smallest local with an honest warning
+
+    local_available=False (a cloud-only installer that never bundled local
+    inference) short-circuits the whole hardware ladder — even a strong GPU
+    can't run a model that isn't there, so recommend the free cloud engine
+    and point at the Full installer for offline mode.
     """
+    if not local_available:
+        from whisperflow.stt import providers
+
+        engine = _detect_cloud_provider() if has_api_key else "groq"
+        provider = providers.get(engine)
+        return Recommendation(
+            engine=engine,
+            name=provider.default_model,
+            device="cpu",
+            compute_type="int8",
+            reason="this is the cloud-only install — Groq is free and instant; "
+            "for fully offline on-device dictation, grab the Full installer",
+            alternatives=["Full installer → local (on-device) speech-to-text, no cloud"],
+        )
+
     alts: list[str] = []
 
     if specs.vram_mb >= 5000:
