@@ -10,10 +10,8 @@ same helper as the Gemini engine.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
-import urllib.error
 import urllib.request
 import uuid
 
@@ -22,7 +20,7 @@ import numpy as np
 from whisperflow.config import ModelConfig
 
 from . import providers
-from .base import RawResult, SttEngine
+from .base import RawResult, SttEngine, check_upload_size, request_json
 from .gemini_engine import SAMPLE_RATE, _float32_to_wav_bytes
 
 log = logging.getLogger(__name__)
@@ -95,11 +93,13 @@ class OpenAICompatibleEngine(SttEngine):
         if initial_prompt:
             fields["prompt"] = initial_prompt[:MAX_PROMPT_CHARS]
 
+        wav_bytes = _float32_to_wav_bytes(audio)
+        check_upload_size(len(wav_bytes), self.provider)
         body, content_type = _multipart_body(
             fields=fields,
             file_field="file",
             filename="audio.wav",
-            file_bytes=_float32_to_wav_bytes(audio),
+            file_bytes=wav_bytes,
             content_type="audio/wav",
         )
 
@@ -116,16 +116,11 @@ class OpenAICompatibleEngine(SttEngine):
                 "User-Agent": "WhisperFlow/1.0",
             },
         )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:300]
-            raise RuntimeError(
-                f"{self.provider.display_name} API error {exc.code}: {detail}"
-            ) from exc
-        except (urllib.error.URLError, OSError) as exc:
-            raise RuntimeError(f"{self.provider.display_name} API unreachable: {exc}") from exc
+        result = request_json(
+            req,
+            provider_name=self.provider.display_name,
+            signup_url=self.provider.signup_url,
+        )
 
         text = result.get("text", "").strip()
         return RawResult(

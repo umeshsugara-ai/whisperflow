@@ -471,6 +471,10 @@ def main() -> int:
             specs = sysinfo.probe()
             rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available(), local_available=_local_inference_available())
             cfg = show_first_run_chooser(first_run_root, specs, rec, cfg_path)
+            if cfg is None:
+                log.info("setup deferred — nothing saved; the chooser will reopen on next launch")
+                first_run_root.destroy()
+                return 0
             log.info("first run — user chose %s via the chooser dialog", cfg.model.engine)
     else:
         cfg = load_config(cfg_path)
@@ -523,6 +527,10 @@ def main() -> int:
         specs = sysinfo.probe()
         rec = sysinfo.recommend(specs, has_api_key=_any_cloud_api_key_available(), local_available=_local_inference_available())
         cfg = show_first_run_chooser(root, specs, rec, cfg_path)
+        if cfg is None:
+            log.info("setup deferred — keeping the existing config; try again next launch")
+            root.destroy()
+            return 0
         try:
             ctl, listener, history = build_controller(cfg)
         except RuntimeError as exc2:

@@ -18,6 +18,7 @@ via root.after (see app.py on_open_main).
 from __future__ import annotations
 
 import os
+import threading
 import time
 import tkinter as tk
 import webbrowser
@@ -685,15 +686,44 @@ class SettingsPage(tk.Frame):
         key_var = tk.StringVar()
         entry = tk.Entry(key_row, textvariable=key_var, show="•", width=40, bg=FIELD, fg=FG, insertbackground=FG)
         entry.pack(side="left")
+        key_status = tk.Label(
+            self._engine_key_frame, text="", bg=BG, fg=FG_DIM,
+            font=("Segoe UI", 8), wraplength=520, justify="left",
+        )
+        key_status.pack(anchor="w", pady=(4, 0))
 
         def _save_key() -> None:
             value = key_var.get().strip()
             if not value:
                 return
-            set_env_var(provider.api_key_env, value, path=self.cfg.path.parent / ".env")
-            self._render_key_entry(provider)  # re-render to show "✓ ... is set"
+            # Validate with a real (0.3s-of-silence) request BEFORE saving —
+            # a mistyped key must fail here, next to the field, not on the
+            # user's first dictation tomorrow.
+            save_btn.config(state="disabled")
+            key_status.config(text="Checking your key…", fg=FG_DIM)
 
-        _button(key_row, "Save key", _save_key).pack(side="left", padx=(6, 0))
+            def worker() -> None:
+                from whisperflow.stt.registry import verify_provider_key
+
+                err = verify_provider_key(provider.id, value)
+
+                def apply() -> None:
+                    try:
+                        if err is not None:
+                            save_btn.config(state="normal")
+                            key_status.config(text=f"✗ {err}", fg=ACCENT_ERR)
+                            return
+                        set_env_var(provider.api_key_env, value, path=self.cfg.path.parent / ".env")
+                        self._render_key_entry(provider)  # re-render to show "✓ ... is set"
+                    except tk.TclError:
+                        pass  # user navigated away while the check ran
+
+                self.after(0, apply)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        save_btn = _button(key_row, "Save key", _save_key)
+        save_btn.pack(side="left", padx=(6, 0))
 
     def _toggle_autostart(self) -> None:
         try:

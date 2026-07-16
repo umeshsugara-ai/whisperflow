@@ -6,10 +6,8 @@ engines.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -18,7 +16,7 @@ import numpy as np
 from whisperflow.config import ModelConfig
 
 from . import providers
-from .base import RawResult, SttEngine
+from .base import RawResult, SttEngine, check_upload_size, request_json
 from .gemini_engine import SAMPLE_RATE, _float32_to_wav_bytes
 
 log = logging.getLogger(__name__)
@@ -58,9 +56,11 @@ class DeepgramEngine(SttEngine):
             params["language"] = language
         query = urllib.parse.urlencode(params)
 
+        wav_bytes = _float32_to_wav_bytes(audio)
+        check_upload_size(len(wav_bytes), self.provider)
         req = urllib.request.Request(
             f"{self.provider.base_url}/listen?{query}",
-            data=_float32_to_wav_bytes(audio),
+            data=wav_bytes,
             headers={
                 "Content-Type": "audio/wav",
                 "Authorization": f"Token {self._api_key}",
@@ -69,14 +69,11 @@ class DeepgramEngine(SttEngine):
                 "User-Agent": "WhisperFlow/1.0",
             },
         )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:300]
-            raise RuntimeError(f"Deepgram API error {exc.code}: {detail}") from exc
-        except (urllib.error.URLError, OSError) as exc:
-            raise RuntimeError(f"Deepgram API unreachable: {exc}") from exc
+        body = request_json(
+            req,
+            provider_name="Deepgram",
+            signup_url=self.provider.signup_url,
+        )
 
         text = self._extract_text(body)
         return RawResult(

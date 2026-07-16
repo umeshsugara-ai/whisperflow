@@ -12,6 +12,7 @@ what a provider row looks like.
 from __future__ import annotations
 
 import os
+import threading
 import tkinter as tk
 import webbrowser
 
@@ -35,9 +36,20 @@ def provider_already_has_key(provider: Provider) -> bool:
     return bool(os.environ.get(provider.api_key_env))
 
 
+def fallback_engine(local_available: bool) -> str | None:
+    """What to do when the user skips key entry or closes the chooser:
+    fall back to "local" when this build can actually run it, or None on a
+    cloud-only install — meaning save nothing and quit cleanly (the chooser
+    reappears on next launch) instead of writing an engine="local" config
+    that can only dead-end into the startup recovery loop."""
+    return "local" if local_available else None
+
+
 def show_first_run_chooser(root, specs, rec, path):
     """Blocking modal. Returns the Config the user confirmed — either the
-    recommendation or a manual pick — already saved to `path`."""
+    recommendation or a manual pick — already saved to `path`. Returns None
+    when setup was deferred (cloud-only build, user closed without a key):
+    nothing was saved and the caller should exit cleanly."""
     from whisperflow.config import set_env_var
     from whisperflow.stt.registry import local_inference_available
     from whisperflow.sysinfo import build_config_for_engine, build_recommended_config
@@ -167,23 +179,57 @@ def show_first_run_chooser(root, specs, rec, path):
         tk.Entry(key_row, textvariable=key_var, show="•", width=36, bg=FIELD, fg=FG, insertbackground=FG).pack(
             side="left"
         )
+        key_status = tk.Label(
+            list_frame, text="", bg=BG, fg=FG_DIM, font=("Segoe UI", 8),
+            wraplength=480, justify="left",
+        )
 
         def _confirm_with_key() -> None:
             value = key_var.get().strip()
             if not value:
                 return
-            set_env_var(provider.api_key_env, value, path=path.parent / ".env")
-            cfg = build_config_for_engine(provider.id, specs)
-            cfg.path = path
-            _finish(cfg)
+            # Validate with a real (0.3s-of-silence) request BEFORE saving —
+            # a mistyped key must fail here, next to the field, not on the
+            # user's first dictation.
+            save_btn.config(state="disabled")
+            key_status.config(text="Checking your key…", fg=FG_DIM)
+            key_status.pack(anchor="w", pady=(4, 0))
 
-        tk.Button(
+            def worker() -> None:
+                from whisperflow.stt.registry import verify_provider_key
+
+                err = verify_provider_key(provider.id, value)
+
+                def apply() -> None:
+                    try:
+                        if err is not None:
+                            save_btn.config(state="normal")
+                            key_status.config(text=f"✗ {err}", fg="#e5484d")
+                            return
+                        set_env_var(provider.api_key_env, value, path=path.parent / ".env")
+                        cfg = build_config_for_engine(provider.id, specs)
+                        cfg.path = path
+                        _finish(cfg)
+                    except tk.TclError:
+                        pass  # window closed while the check ran
+
+                win.after(0, apply)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        save_btn = tk.Button(
             key_row, text="Save & continue", command=_confirm_with_key,
             bg=ACCENT_OK, fg="#0d1a0d", relief="flat", padx=8, cursor="hand2",
-        ).pack(side="left", padx=(6, 0))
+        )
+        save_btn.pack(side="left", padx=(6, 0))
+        skip_label = (
+            "I'll add a key later (use Local for now)"
+            if local_ok
+            else "I'll finish setup later (WhisperFlow will ask again next launch)"
+        )
         tk.Button(
-            list_frame, text="I'll add a key later (use Local for now)",
-            command=lambda: _finish_local(),
+            list_frame, text=skip_label,
+            command=lambda: _skip_setup(),
             bg=BG, fg=FG_DIM, relief="flat", cursor="hand2",
         ).pack(anchor="w", pady=(10, 0))
 
@@ -191,6 +237,20 @@ def show_first_run_chooser(root, specs, rec, path):
         cfg = build_config_for_engine("local", specs)
         cfg.path = path
         _finish(cfg)
+
+    def _finish_deferred() -> None:
+        # Cloud-only build, no key yet: there is nothing runnable to save.
+        # Save nothing — with no config.toml the chooser simply reappears on
+        # the next launch — and let the caller quit cleanly.
+        result["cfg"] = None
+        win.grab_release()
+        win.destroy()
+
+    def _skip_setup() -> None:
+        if fallback_engine(local_ok) == "local":
+            _finish_local()
+        else:
+            _finish_deferred()
 
     def _give_up_local() -> None:
         # Escape hatch for a persistent save failure (e.g. a genuinely
@@ -252,9 +312,10 @@ def show_first_run_chooser(root, specs, rec, path):
         win.grab_release()
         win.destroy()
 
-    # Closing the window (X button) must never leave the app unconfigured —
-    # treat it exactly like "I'll add a key later": fall back to local.
-    win.protocol("WM_DELETE_WINDOW", _finish_local)
+    # Closing the window (X button) is treated exactly like the skip button:
+    # fall back to local when this build can run it, otherwise defer setup
+    # (save nothing, caller quits cleanly, chooser reappears next launch).
+    win.protocol("WM_DELETE_WINDOW", _skip_setup)
 
     win.wait_window()
-    return result["cfg"]
+    return result.get("cfg")

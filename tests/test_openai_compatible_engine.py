@@ -108,7 +108,9 @@ def test_transcribe_raises_readable_error_on_http_401(monkeypatch):
         raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(b"bad key"))
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    with pytest.raises(RuntimeError, match="Groq.*API error 401"):
+    # 401 maps to a friendly "fix your key" message with the signup link —
+    # not the raw HTTP status the user can't act on
+    with pytest.raises(RuntimeError, match="Groq.*rejected your API key.*console.groq.com"):
         engine.transcribe(np.zeros(16000, dtype=np.float32))
 
 

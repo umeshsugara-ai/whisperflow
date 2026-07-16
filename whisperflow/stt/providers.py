@@ -27,6 +27,7 @@ class Provider:
     quality_tier: str  # good | better | best
     speed_note: str
     setup_steps: tuple[str, ...] = field(default_factory=tuple)
+    max_upload_bytes: int = 0  # provider's per-request audio limit; 0 = none known
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -62,6 +63,7 @@ PROVIDERS: dict[str, Provider] = {
             "Click 'Create API Key', give it any name, and copy the key.",
             "Paste it into the field below.",
         ),
+        max_upload_bytes=25_000_000,  # Groq free-tier file limit is 25MB
     ),
     "gemini": Provider(
         id="gemini",
@@ -81,6 +83,9 @@ PROVIDERS: dict[str, Provider] = {
             "Click 'Create API key' and copy it.",
             "Paste it into the field below.",
         ),
+        # generateContent caps the request at 20MB and audio goes inline as
+        # base64 (4/3 inflation) — ~14MB of WAV is the safe ceiling
+        max_upload_bytes=14_000_000,
     ),
     "openai": Provider(
         id="openai",
@@ -100,6 +105,7 @@ PROVIDERS: dict[str, Provider] = {
             "Click 'Create new secret key' and copy it immediately (shown once).",
             "Paste it into the field below.",
         ),
+        max_upload_bytes=25_000_000,  # OpenAI audio endpoints cap files at 25MB
     ),
     "deepgram": Provider(
         id="deepgram",

@@ -23,14 +23,13 @@ import json
 import logging
 import struct
 import time
-import urllib.error
 import urllib.request
 
 import numpy as np
 
 from whisperflow.config import ModelConfig
 
-from .base import RawResult, SttEngine
+from .base import RawResult, SttEngine, check_upload_size, request_json
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +100,11 @@ class GeminiEngine(SttEngine):
             if initial_prompt
             else ""
         )
+        from . import providers
+
+        provider = providers.get("gemini")
+        wav_bytes = _float32_to_wav_bytes(audio)
+        check_upload_size(len(wav_bytes), provider)
         payload = {
             "contents": [
                 {
@@ -109,7 +113,7 @@ class GeminiEngine(SttEngine):
                         {
                             "inlineData": {
                                 "mimeType": "audio/wav",
-                                "data": base64.b64encode(_float32_to_wav_bytes(audio)).decode("ascii"),
+                                "data": base64.b64encode(wav_bytes).decode("ascii"),
                             }
                         },
                     ]
@@ -129,14 +133,11 @@ class GeminiEngine(SttEngine):
                 "User-Agent": "WhisperFlow/1.0",
             },
         )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:300]
-            raise RuntimeError(f"Gemini API error {exc.code}: {detail}") from exc
-        except (urllib.error.URLError, OSError) as exc:
-            raise RuntimeError(f"Gemini API unreachable: {exc}") from exc
+        body = request_json(
+            req,
+            provider_name="Gemini",
+            signup_url=provider.signup_url,
+        )
 
         text = self._extract_text(body)
         return RawResult(
