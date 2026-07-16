@@ -124,6 +124,7 @@ launch opens it automatically:
 - **History** — searchable list of every dictation with the RAW and cleaned text side by side.
 - **Dictionary** — add vocabulary words and "when I say → write instead" rules; saved straight to config.toml.
 - **Settings** — hotkey, language, cleanup tier, live typing, overlay pill, start-on-login, a **microphone picker** (dropdown of your real input devices) and a **Test mic** button with a live level bar (the 10-second answer to "why is nothing transcribing"). No config-file editing needed — everything applies on Save, no restart.
+- **Self-healing** — a hook watchdog re-arms the hotkey after Windows kills it across sleep/resume, and a crash watchdog relaunches the app if it ever dies (crash report saved to the data dir's `crashes/` folder; disable via `[startup].crash_restart`). A clean Quit never triggers it.
 
 Closing the window just hides it — WhisperFlow keeps running in the tray.
 

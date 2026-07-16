@@ -145,6 +145,7 @@ class OverlayConfig:
 @dataclass
 class StartupConfig:
     auto_register: bool = True  # on first run, register autostart in the HKCU Run key
+    crash_restart: bool = True  # watchdog process relaunches the app if it crashes
 
 
 @dataclass
@@ -465,6 +466,9 @@ show_hint = {t(o.show_hint)}           # briefly show the hotkey (e.g. "● Alt+
 auto_register = {t(s.auto_register)}       # on first run, register WhisperFlow to start at Windows login
                            # (HKCU Run key, windowless). Toggle anytime via tray → "Start on
                            # Windows login", or run: python app.py --install/--uninstall-autostart
+crash_restart = {t(s.crash_restart)}       # a tiny watchdog relaunches the app if it ever crashes
+                           # (clean Quit never triggers it); crash reports land in
+                           # the data dir's crashes/ folder
 '''
 
 

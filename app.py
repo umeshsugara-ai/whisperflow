@@ -494,6 +494,58 @@ def print_recommendation() -> int:
     return 0
 
 
+def _spawn_crash_watchdog(cfg) -> None:
+    """Arm the sibling watchdog process: if this app ever dies with a
+    non-zero exit (crash, native fault, Task-Manager kill) it writes a crash
+    report and relaunches us. Skipped when this instance was itself
+    relaunched by a watchdog (that one keeps watching, WHISPERFLOW_WATCHED
+    is set) or when [startup].crash_restart is off."""
+    import subprocess
+
+    from whisperflow.config import is_frozen
+    from whisperflow.watchdog import WATCHED_ENV
+
+    if os.environ.get(WATCHED_ENV) or not cfg.startup.crash_restart:
+        return
+    if is_frozen():
+        watchdog_cmd = [str(Path(sys.executable).parent / "WhisperFlowWatchdog.exe")]
+        app_cmd = [sys.executable]
+    else:
+        watchdog_cmd = [sys.executable, "-m", "whisperflow.watchdog"]
+        app_cmd = [sys.executable, str(APP_ROOT / "app.py")]
+    app_cmd += ["--config", str(cfg.path)]
+    try:
+        subprocess.Popen(  # noqa: S603 — our own binaries/paths
+            [*watchdog_cmd, "--pid", str(os.getpid()), "--data-dir", str(data_dir()), *app_cmd],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
+        log.info("crash watchdog armed")
+    except OSError:
+        log.exception("could not start the crash watchdog — crash auto-restart is off this session")
+
+
+def _report_recent_crashes() -> None:
+    """Surface crashes from previous sessions on the Home warning strip:
+    the watchdog writes crashes/crash-*.txt; WARN once per report that
+    appeared since the last acknowledged launch, then move the ack mark."""
+    crashes = data_dir() / "crashes"
+    if not crashes.is_dir():
+        return
+    acked = crashes / ".acked"
+    last_ack = acked.stat().st_mtime if acked.exists() else 0.0
+    fresh = [p for p in sorted(crashes.glob("crash-*.txt")) if p.stat().st_mtime > last_ack]
+    for path in fresh:
+        log.warning(
+            "WhisperFlow crashed and was restarted automatically — crash report saved: %s", path
+        )
+    if fresh:
+        try:
+            acked.touch()
+        except OSError:
+            pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--headless", action="store_true", help="run without tray/overlay UI")
@@ -627,6 +679,10 @@ def main() -> int:
 
     if args.headless:
         return run_headless(cfg, ctl, listener)
+    # armed only after a fully successful startup — a config/engine problem
+    # that dies at launch must NOT be relaunch-looped by the watchdog
+    _report_recent_crashes()
+    _spawn_crash_watchdog(cfg)
     return run_with_ui(cfg, ctl, listener, history, autostarted=args.autostart, root=first_run_root)
 
 

@@ -50,6 +50,22 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# Crash watchdog: a second, tiny entry point in the SAME onedir bundle (it
+# shares _internal, so the size cost is just one small exe stub). The app
+# spawns it after a successful startup; it relaunches the app on crash.
+wd = Analysis(
+    [os.path.join(REPO, "whisperflow", "watchdog.py")],
+    pathex=[REPO],
+    binaries=[],
+    datas=[],
+    hiddenimports=[],
+    hookspath=[],
+    runtime_hooks=[],
+    excludes=["pytest", "tkinter"],
+    noarchive=False,
+)
+wd_pyz = PYZ(wd.pure)
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -62,10 +78,25 @@ exe = EXE(
     console=False,  # windowed — no console flash; logs go to %LOCALAPPDATA%\WhisperFlow\logs
     icon=os.path.join(REPO, "assets", "app.ico"),
 )
+wd_exe = EXE(
+    wd_pyz,
+    wd.scripts,
+    [],
+    exclude_binaries=True,
+    name="WhisperFlowWatchdog",
+    debug=False,
+    strip=False,
+    upx=False,
+    console=False,  # invisible background process
+    icon=os.path.join(REPO, "assets", "app.ico"),
+)
 coll = COLLECT(
     exe,
+    wd_exe,
     a.binaries,
     a.datas,
+    wd.binaries,
+    wd.datas,
     strip=False,
     upx=False,
     name="WhisperFlow",

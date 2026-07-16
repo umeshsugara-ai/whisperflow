@@ -61,6 +61,9 @@ function InitializeUninstall(): Boolean;
 var
   ResultCode: Integer;
 begin
+  // watchdog FIRST — killed second, it would read the app's forced exit as
+  // a crash and relaunch it in the middle of the uninstall
+  Exec('taskkill.exe', '/F /IM WhisperFlowWatchdog.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('taskkill.exe', '/F /IM {#AppExe}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := True;
 end;
@@ -72,6 +75,8 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
+  // watchdog first — see InitializeUninstall
+  Exec('taskkill.exe', '/F /IM WhisperFlowWatchdog.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('taskkill.exe', '/F /IM {#AppExe}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := '';
 end;
