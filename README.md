@@ -225,3 +225,7 @@ python scripts/test_audio.py --duration 1 --check
 ```
 
 Architecture and decision log: see `research/` (STORM briefing on how Wispr Flow works and where it breaks) and the plan in `C:/Users/Lenovo/.claude/plans/abb-agar-mujhe-apne-witty-snail.md`.
+
+## License
+
+[MIT](LICENSE) — © 2026 Umesh Sugara.
