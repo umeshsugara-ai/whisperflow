@@ -39,6 +39,19 @@ APP_ROOT = Path(__file__).resolve().parent
 MUTEX_NAME = "Global\\WhisperFlowSingleInstance"
 ERROR_ALREADY_EXISTS = 183
 
+# how often the running app proves it's still responsive. Scheduled via
+# root.after() so it only fires if the Tk mainloop itself is pumping events —
+# a background thread's own loop can't detect a frozen UI thread, this can.
+# whisperflow.watchdog.HEARTBEAT_STALE_S gives ~3 missed ticks of margin.
+HEARTBEAT_INTERVAL_S = 20.0
+
+
+def _write_heartbeat() -> None:
+    try:
+        (data_dir() / "heartbeat.txt").write_text(str(time.time()), encoding="utf-8")
+    except OSError:
+        pass  # a missed write must never crash the app; the next tick retries
+
 
 def acquire_single_instance() -> bool:
     """Named mutex — False if another WhisperFlow instance already runs."""
@@ -416,6 +429,16 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         on_open_main("home")
 
     log.info("ready — hotkey %s (tap=toggle, hold=push-to-talk, Esc=cancel)", cfg.hotkey.combo)
+
+    if cfg.startup.crash_restart:
+        # only the watchdog reads this file, and it's only running when
+        # crash_restart is on — writing it otherwise would be pointless
+        def _tick_heartbeat() -> None:
+            _write_heartbeat()
+            root.after(int(HEARTBEAT_INTERVAL_S * 1000), _tick_heartbeat)
+
+        _tick_heartbeat()
+
     try:
         root.mainloop()
     finally:
@@ -496,10 +519,12 @@ def print_recommendation() -> int:
 
 def _spawn_crash_watchdog(cfg) -> None:
     """Arm the sibling watchdog process: if this app ever dies with a
-    non-zero exit (crash, native fault, Task-Manager kill) it writes a crash
-    report and relaunches us. Skipped when this instance was itself
-    relaunched by a watchdog (that one keeps watching, WHISPERFLOW_WATCHED
-    is set) or when [startup].crash_restart is off."""
+    non-zero exit (crash, native fault, Task-Manager kill) OR stops
+    responding while still alive (frozen Tk mainloop — see the heartbeat
+    tick started below), it writes a crash report and relaunches us.
+    Skipped when this instance was itself relaunched by a watchdog (that
+    one keeps watching, WHISPERFLOW_WATCHED is set) or when
+    [startup].crash_restart is off."""
     import subprocess
 
     from whisperflow.config import is_frozen
