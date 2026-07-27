@@ -242,6 +242,13 @@ class HomePage(tk.Frame):
         self._status.pack(anchor="w", padx=16, pady=(0, 8))
         self._status.bind("<Button-1>", lambda e: self._show_warnings())
 
+        self.cfg = cfg
+        # gesture-label widgets from the guide card ("Hold X" / "Tap X") —
+        # refreshed on every show_page("home") since MainWindow is a
+        # singleton (this card is built ONCE) but the hotkey can change any
+        # number of times in Settings after that; a Settings-only re-bind
+        # left this card stuck showing the combo from the first open.
+        self._guide_gesture_labels: list[tk.Label] = []
         if cfg is not None and not guide_dismissed():
             self._build_guide_card(format_hotkey_label(cfg.hotkey.combo))
 
@@ -275,6 +282,14 @@ class HomePage(tk.Frame):
         self._recent.pack(fill="both", expand=True, padx=16, pady=(0, 12))
 
     def refresh(self) -> None:
+        if self.cfg is not None and self._guide_gesture_labels:
+            lines = guide_lines(format_hotkey_label(self.cfg.hotkey.combo))
+            try:
+                for widget, (gesture, _what) in zip(self._guide_gesture_labels, lines):
+                    widget.config(text=gesture)
+            except tk.TclError:
+                self._guide_gesture_labels = []  # card was dismissed since the last refresh
+
         stats = self.history.stats()
         today = time.strftime("%Y-%m-%d")
         self._cards["words"].config(text=format_count(stats["total_words"]))
@@ -331,9 +346,11 @@ class HomePage(tk.Frame):
         for gesture, what in guide_lines(hotkey_label):
             row = tk.Frame(card, bg=CARD)
             row.pack(fill="x", pady=(4, 0))
-            tk.Label(
+            gesture_label = tk.Label(
                 row, text=gesture, bg=FIELD, fg=FG, font=("Segoe UI", 9, "bold"), padx=6, pady=1
-            ).pack(side="left")
+            )
+            gesture_label.pack(side="left")
+            self._guide_gesture_labels.append(gesture_label)
             tk.Label(
                 row, text="  " + what, bg=CARD, fg=FG_DIM, font=("Segoe UI", 9), anchor="w"
             ).pack(side="left", fill="x", expand=True)
