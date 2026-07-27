@@ -129,6 +129,30 @@ def resolve_device(preference: str, devices=None, hostapis=None) -> tuple[int | 
     return None, "system default"
 
 
+def uses_wasapi(device_idx: int | None, devices=None, hostapis=None) -> bool:
+    """True when the given input device (None = system default) is hosted by
+    WASAPI. Streams opened on WASAPI devices need
+    `sd.WasapiSettings(auto_convert=True)`: PortAudio's WASAPI backend only
+    accepts the device's native mix rate (usually 48 kHz) and rejects our
+    16 kHz request with -9997 "Invalid sample rate" — the live cause of a
+    pinned, healthy mic failing to open (2026-07-27). MME/DirectSound
+    resample on their own and must NOT receive WASAPI settings.
+    The devices/hostapis params exist for unit tests."""
+    try:
+        if devices is None:
+            devices = sd.query_devices()
+        if hostapis is None:
+            hostapis = sd.query_hostapis()
+        if device_idx is None:
+            device_idx = sd.default.device[0]
+        if device_idx is None or device_idx < 0 or device_idx >= len(devices):
+            return False
+        api = hostapis[devices[device_idx]["hostapi"]]["name"]
+        return "wasapi" in api.lower()
+    except Exception:  # noqa: BLE001 — a best-effort probe must never block recording
+        return False
+
+
 def device_warning(preference: str, resolved_name: str) -> str:
     """Human-readable warning when the resolved mic looks wrong, else "".
 
@@ -261,6 +285,9 @@ class Recorder:
                 device=idx,
                 callback=self._callback,
                 latency="low",  # minimize device spin-up so the first word isn't clipped
+                # WASAPI rejects non-native rates (-9997) without auto_convert;
+                # see uses_wasapi(). None for MME/DirectSound-hosted devices.
+                extra_settings=sd.WasapiSettings(auto_convert=True) if uses_wasapi(idx) else None,
             )
             self._stream.start()
 

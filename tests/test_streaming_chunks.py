@@ -453,3 +453,30 @@ def test_resolve_device_falls_back_to_first_match_without_wasapi():
     idx, name = resolve_device("built-in", devices, hostapis)
     assert idx == 0
     assert name == "Built-in Microphone"
+
+
+def test_uses_wasapi_true_only_for_wasapi_hosted_devices():
+    """WASAPI streams need auto_convert (PortAudio's WASAPI backend rejects
+    our 16 kHz with -9997 'Invalid sample rate' when the device mix format
+    is 48 kHz) — but WasapiSettings must NOT be passed to MME/DirectSound
+    streams, so the decision has to name the right host API per index."""
+    from whisperflow.audio import uses_wasapi
+
+    hostapis = [{"name": "MME"}, {"name": "Windows DirectSound"}, {"name": "Windows WASAPI"}]
+    devices = [
+        {"name": "Mic (Realtek)", "max_input_channels": 2, "hostapi": 0},
+        {"name": "Mic (Realtek)", "max_input_channels": 2, "hostapi": 1},
+        {"name": "Mic (Realtek)", "max_input_channels": 2, "hostapi": 2},
+    ]
+    assert uses_wasapi(2, devices, hostapis) is True
+    assert uses_wasapi(0, devices, hostapis) is False
+    assert uses_wasapi(1, devices, hostapis) is False
+
+
+def test_uses_wasapi_never_raises_on_bad_input():
+    from whisperflow.audio import uses_wasapi
+
+    hostapis = [{"name": "Windows WASAPI"}]
+    devices = [{"name": "Mic", "max_input_channels": 1, "hostapi": 0}]
+    assert uses_wasapi(99, devices, hostapis) is False  # index out of range
+    assert uses_wasapi(-1, devices, hostapis) is False
