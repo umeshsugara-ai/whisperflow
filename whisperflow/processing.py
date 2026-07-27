@@ -1,11 +1,14 @@
 """Text-processing pipeline: cleanup tier + dictionary replacements.
 
 Builds the controller's `process_text` hook from config. Tier resolution:
-- "off"   -> raw text untouched
-- "rules" -> rule-based cleanup
-- "llm"   -> Ollama cleanup; ANY failure (down, timeout, empty) falls back
-             to rules for that dictation — dictation must never block on
-             an optional dependency.
+- "off"    -> raw text untouched
+- "rules"  -> rule-based cleanup
+- "llm"    -> Ollama cleanup (local, private; needs Ollama + a pulled model)
+- "groq"   -> Groq cloud text polish — reuses the GROQ_API_KEY the STT
+              engine already needs, so it's the zero-setup polish path
+- "gemini" -> Gemini cloud text polish (own key)
+ANY failure (down, timeout, empty, no key) falls back to rules for that
+dictation — dictation must never block on an optional dependency.
 Dictionary replacements apply after cleanup in every tier.
 The RAW text is preserved upstream (controller/history), never here.
 """
@@ -15,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
-from whisperflow.cleanup import gemini_llm, ollama_llm, rules
+from whisperflow.cleanup import gemini_llm, groq_llm, ollama_llm, rules
 from whisperflow.config import CleanupConfig, DictionaryConfig
 from whisperflow.dictionary import apply_replacements
 
@@ -28,6 +31,7 @@ def build_processor(
     llm_available: bool | None = None,
     gemini_api_key: str = "",
     gemini_model: str = "",
+    groq_api_key: str = "",
 ) -> Callable[[str, str], tuple[str, str]]:
     """Return process_text(raw, language) -> (final_text, tier_used)."""
 
@@ -43,6 +47,11 @@ def build_processor(
             log.warning("cleanup tier 'gemini': transcript TEXT (not audio) will be sent to Google")
         else:
             log.warning("cleanup tier is 'gemini' but no API key is configured — degrading to rules")
+    if cleanup_cfg.tier == "groq":
+        if groq_api_key:
+            log.warning("cleanup tier 'groq': transcript TEXT (not audio) will be sent to Groq")
+        else:
+            log.warning("cleanup tier is 'groq' but GROQ_API_KEY is not set — degrading to rules")
 
     def _rules(raw: str) -> str:
         return rules.clean(raw, cleanup_cfg.extra_fillers)
@@ -74,9 +83,20 @@ def build_processor(
                 log.warning("gemini cleanup failed (%s); falling back to rules", exc)
                 text = _rules(raw)
                 tier_used = "rules-fallback"
+        elif cleanup_cfg.tier == "groq" and groq_api_key:
+            try:
+                text = groq_llm.clean(
+                    raw,
+                    model=cleanup_cfg.groq_model,
+                    api_key=groq_api_key,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("groq cleanup failed (%s); falling back to rules", exc)
+                text = _rules(raw)
+                tier_used = "rules-fallback"
         else:
             text = _rules(raw)
-            if cleanup_cfg.tier in ("llm", "gemini"):
+            if cleanup_cfg.tier in ("llm", "gemini", "groq"):
                 tier_used = "rules-fallback"
 
         return apply_replacements(text, dict_cfg), tier_used

@@ -80,6 +80,7 @@ class Tray:
                 Menu(
                     tier_item("off", "Off (verbatim)"),
                     tier_item("rules", "Rules (fillers + punctuation)"),
+                    tier_item("groq", "LLM polish (Groq cloud)"),
                     tier_item("llm", "LLM (Ollama, local)"),
                     tier_item("gemini", "LLM (Gemini cloud — text only)"),
                 ),

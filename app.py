@@ -186,6 +186,7 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
         process_text=build_processor(
             cfg.cleanup, cfg.dictionary,
             gemini_api_key=cfg.model.resolve_api_key(), gemini_model=cfg.cleanup.gemini_model,
+            groq_api_key=os.environ.get("GROQ_API_KEY", ""),
         ),
         on_result=on_result,
         language=cfg.model.language,
@@ -295,6 +296,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         ctl.process_text = build_processor(
             cfg.cleanup, cfg.dictionary,
             gemini_api_key=cfg.model.resolve_api_key(), gemini_model=cfg.cleanup.gemini_model,
+            groq_api_key=os.environ.get("GROQ_API_KEY", ""),
         )
 
     def on_tier_change(tier: str) -> None:

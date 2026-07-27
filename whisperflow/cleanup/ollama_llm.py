@@ -17,10 +17,12 @@ log = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You clean up voice-dictation transcripts. Fix punctuation and "
-    "capitalization, and remove filler words (um, uh, matlab, yaar). "
-    "Do NOT rephrase, translate, summarize, or change any other words. "
-    "Preserve the language exactly as spoken, including Hindi and Hinglish. "
-    "Output ONLY the cleaned text with no commentary."
+    "capitalization, remove filler words (um, uh, matlab, yaar), and correct "
+    "obvious transcription misspellings — especially romanized Hindi/Hinglish "
+    "words (e.g. 'nighi'->'nahi', 'liqha'->'likha') and misheard English. "
+    "Do NOT rephrase, translate, summarize, or change the meaning or word "
+    "order. Preserve the language and script exactly as spoken (Hinglish "
+    "stays in Latin script). Output ONLY the cleaned text with no commentary."
 )
 
 

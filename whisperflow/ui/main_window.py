@@ -64,6 +64,7 @@ LANGUAGE_CHOICES = (
 TIER_CHOICES = (
     ("Off (verbatim)", "off"),
     ("Rules (fillers + punctuation)", "rules"),
+    ("LLM polish (Groq cloud — uses your existing key)", "groq"),
     ("LLM (Ollama, local)", "llm"),
     ("LLM (Gemini cloud — text only)", "gemini"),
 )

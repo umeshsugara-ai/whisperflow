@@ -98,6 +98,100 @@ def test_processor_gemini_failure_falls_back(monkeypatch):
     assert "hello world" in text.lower()
 
 
+def test_processor_groq_tier_with_mock(monkeypatch):
+    from whisperflow import processing
+
+    seen = {}
+
+    def fake_clean(text, model, api_key):
+        seen["model"] = model
+        seen["key"] = api_key
+        return "Kya tum sun rahe ho?"
+
+    monkeypatch.setattr(processing.groq_llm, "clean", fake_clean)
+    cfg = CleanupConfig(tier="groq")
+    process = build_processor(cfg, dict_cfg(), groq_api_key="gk")
+    text, tier = process("kiatum sunrayo", "hi")
+    assert tier == "groq"
+    assert text == "Kya tum sun rahe ho?"
+    assert seen["model"] == "llama-3.3-70b-versatile"  # free default; 8b dropped words in live testing
+    assert seen["key"] == "gk"
+
+
+def test_processor_groq_without_key_falls_back():
+    cfg = CleanupConfig(tier="groq")
+    process = build_processor(cfg, dict_cfg(), groq_api_key="")
+    text, tier = process("um hello world", "en")
+    assert tier == "rules-fallback"
+    assert "hello world" in text.lower()
+
+
+def test_processor_groq_failure_falls_back(monkeypatch):
+    from whisperflow import processing
+
+    def boom(*a, **k):
+        raise TimeoutError("groq down")
+
+    monkeypatch.setattr(processing.groq_llm, "clean", boom)
+    cfg = CleanupConfig(tier="groq")
+    process = build_processor(cfg, dict_cfg(), groq_api_key="gk")
+    text, tier = process("um hello world", "en")
+    assert tier == "rules-fallback"
+    assert "hello world" in text.lower()
+
+
+def test_groq_clean_request_shape(monkeypatch):
+    """The wire format: system+user chat messages, Bearer auth, temp 0."""
+    import io
+    import json as _json
+    import urllib.request
+
+    from whisperflow.cleanup import groq_llm
+
+    captured = {}
+
+    def fake_urlopen(req, timeout=0):
+        captured["url"] = req.full_url
+        captured["auth"] = req.get_header("Authorization")
+        captured["body"] = _json.loads(req.data.decode("utf-8"))
+        reply = _json.dumps(
+            {"choices": [{"message": {"content": " polished text "}}]}
+        ).encode("utf-8")
+
+        class _Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        return _Resp(reply)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    out = groq_llm.clean("raw text", model="llama-3.1-8b-instant", api_key="gk")
+    assert out == "polished text"
+    assert captured["url"] == "https://api.groq.com/openai/v1/chat/completions"
+    assert captured["auth"] == "Bearer gk"
+    assert captured["body"]["model"] == "llama-3.1-8b-instant"
+    assert captured["body"]["temperature"] == 0.0
+    roles = [m["role"] for m in captured["body"]["messages"]]
+    assert roles == ["system", "user"]
+    assert captured["body"]["messages"][1]["content"] == "raw text"
+    # the polish prompt must allow spelling fixes but forbid rephrasing
+    system = captured["body"]["messages"][0]["content"]
+    assert "mis-transcriptions" in system
+    assert "Do NOT rephrase" in system
+
+
+def test_groq_clean_requires_key():
+    import pytest
+
+    from whisperflow.cleanup import groq_llm
+
+    with pytest.raises(ValueError):
+        groq_llm.clean("text", model="m", api_key="")
+
+
 def test_processor_llm_mid_run_failure_falls_back(monkeypatch):
     from whisperflow import processing
 

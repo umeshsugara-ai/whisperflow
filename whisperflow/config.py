@@ -49,7 +49,7 @@ DEFAULT_CONFIG_PATH = data_dir() / "config.toml"
 
 VALID_DEVICES = {"cuda", "cpu"}
 VALID_COMPUTE_TYPES = {"int8_float16", "float16", "int8", "float32"}
-VALID_CLEANUP_TIERS = {"off", "rules", "llm", "gemini"}
+VALID_CLEANUP_TIERS = {"off", "rules", "llm", "groq", "gemini"}
 VALID_INJECT_METHODS = {"auto", "type", "paste"}
 def _valid_engines() -> set[str]:
     from whisperflow.stt import providers
@@ -112,6 +112,7 @@ class CleanupConfig:
     llm_url: str = "http://localhost:11434"
     llm_timeout_s: float = 3.0
     gemini_model: str = "gemini-2.5-flash-lite"  # cheapest tier — text polish doesn't need more
+    groq_model: str = "llama-3.3-70b-versatile"  # free + ~0.3s; 8b-instant dropped words in testing
     extra_fillers: list[str] = field(default_factory=list)
 
 
@@ -435,11 +436,13 @@ min_chunk_s = {t(st.min_chunk_s)}          # never send chunks shorter than this
 max_chunk_s = {t(st.max_chunk_s)}         # force a chunk boundary even with no pause
 
 [cleanup]
-tier = {t(c.tier)}             # off | rules | llm (Ollama, local) | gemini (cloud text-polish, BYOK)
+tier = {t(c.tier)}             # off | rules | llm (Ollama, local) | groq (cloud text-polish,
+                           # reuses your STT GROQ_API_KEY — zero extra setup) | gemini (cloud, own key)
 llm_model = {t(c.llm_model)}
 llm_url = {t(c.llm_url)}
 llm_timeout_s = {t(c.llm_timeout_s)}
 gemini_model = {t(c.gemini_model)}  # cheapest Gemini tier — enough for text polish, keeps cost minimal
+groq_model = {t(c.groq_model)}  # fast free Groq LLM for the groq polish tier
 extra_fillers = {t(c.extra_fillers)}         # additional filler words to strip in rules tier, e.g. ["basically"]
 
 [inject]
