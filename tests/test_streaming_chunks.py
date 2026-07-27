@@ -19,7 +19,7 @@ from whisperflow.stt.base import RawResult
 from whisperflow.ui.feedback import idle_flash
 
 
-def make_recording(duration=2.0, rms=0.1, too_short=False, silent=False) -> Recording:
+def make_recording(duration=2.0, rms=0.1, too_short=False, silent=False, low_level=False) -> Recording:
     return Recording(
         samples=np.zeros(int(duration * 16000), dtype=np.float32),
         device_name="fake-mic",
@@ -27,6 +27,7 @@ def make_recording(duration=2.0, rms=0.1, too_short=False, silent=False) -> Reco
         rms=rms,
         too_short=too_short,
         silent=silent,
+        low_level=low_level,
     )
 
 
@@ -480,3 +481,163 @@ def test_uses_wasapi_never_raises_on_bad_input():
     devices = [{"name": "Mic", "max_input_channels": 1, "hostapi": 0}]
     assert uses_wasapi(99, devices, hostapis) is False  # index out of range
     assert uses_wasapi(-1, devices, hostapis) is False
+
+
+# ---- capped-gain silence guard (_finalize) ----
+# Live incident 2026-07-28: mic level collapsed ~20x; noise-floor chunks
+# (rms 0.0005-0.0006, gain pinned at the 40x cap) passed the plain silence
+# gate and whisper hallucinated 207 chars + a raw "<|hi|>" token into the
+# user's window. These tests pin the band logic that closes that hole.
+
+def _finalize_const(amplitude: float, seconds: float = 1.0):
+    """Finalize one constant-amplitude block: rms == peak == amplitude."""
+    from whisperflow.audio import Recorder
+    from whisperflow.config import AudioConfig
+
+    rec = Recorder(AudioConfig())  # no stream is opened by __init__
+    block = np.full(int(seconds * 16000), amplitude, dtype=np.float32)
+    return rec._finalize([block])
+
+
+def test_capped_gain_band_is_silent_and_low_level():
+    # THE regression: 0.0006 was silent=False before the guard (0.0006 > 0.0005)
+    r = _finalize_const(0.0006)
+    assert r.silent is True
+    assert r.low_level is True
+
+
+def test_plain_silence_stays_low_level_false():
+    r = _finalize_const(0.0004)
+    assert r.silent is True
+    assert r.low_level is False  # ordinary quiet room -> ordinary "No speech" UX
+
+
+def test_quiet_real_speech_still_transcribes_with_gain():
+    r = _finalize_const(0.006)
+    assert r.silent is False
+    assert r.low_level is False
+    assert float(np.abs(r.samples).max()) > 0.006  # gain was applied
+
+
+def test_healthy_and_loud_audio_unchanged():
+    healthy = _finalize_const(0.05)
+    assert healthy.silent is False and healthy.low_level is False
+    loud = _finalize_const(0.4)
+    assert loud.silent is False
+    assert float(np.abs(loud.samples).max()) == np.float32(0.4)  # >=0.30: no gain
+
+
+def test_empty_blocks_finalize_silent_without_crash():
+    from whisperflow.audio import Recorder
+    from whisperflow.config import AudioConfig
+
+    r = Recorder(AudioConfig())._finalize([])
+    assert r.silent is True and r.low_level is False and r.duration_s == 0.0
+
+
+def test_silent_recordings_are_never_amplified(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="whisperflow.audio"):
+        r = _finalize_const(0.0006)
+    assert float(np.abs(r.samples).max()) == np.float32(0.0006)  # untouched
+    assert not any("auto-gain applied" in m for m in caplog.messages)
+
+
+def test_low_level_streak_warns_once_and_rearms(caplog):
+    import logging
+
+    from whisperflow.audio import Recorder
+    from whisperflow.config import AudioConfig
+
+    rec = Recorder(AudioConfig())
+    in_band = [np.full(16000, 0.0006, dtype=np.float32)]
+    plain_silent = [np.full(16000, 0.0004, dtype=np.float32)]
+    healthy = [np.full(16000, 0.05, dtype=np.float32)]
+
+    def warnings():
+        return [m for m in caplog.messages if "Mic level near zero" in m]
+
+    with caplog.at_level(logging.WARNING, logger="whisperflow.audio"):
+        rec._finalize(in_band)
+        rec._finalize(plain_silent)  # neutral: must NOT reset the streak
+        rec._finalize(in_band)
+        assert warnings() == []
+        rec._finalize(in_band)  # third in-band -> the one warning
+        assert len(warnings()) == 1
+        rec._finalize(in_band)  # fourth -> no spam
+        assert len(warnings()) == 1
+        rec._finalize(healthy)  # real speech resets + re-arms
+        for _ in range(3):
+            rec._finalize(in_band)
+        assert len(warnings()) == 2
+
+
+def test_idle_flash_maps_mic_level_detail():
+    flash = idle_flash("mic level near zero")
+    assert flash == ("warn", "Mic level near zero ⚠")
+    assert len(flash[1]) <= 28
+    # existing mappings untouched
+    assert idle_flash("no speech detected") == ("warn", "No speech — check mic ⚠")
+    assert idle_flash("mic unavailable") == ("warn", "Mic busy — try again ⚠")
+
+
+def test_low_level_final_reports_mic_level_not_no_speech():
+    rec = FakeChunkRecorder()
+    rec.final = make_recording(silent=True, low_level=True)
+    ctl, states, results, injected = build(rec, SequenceEngine([]))
+
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    idle_details = [d for s, d in states if s is State.IDLE]
+    assert any("mic level near zero" in d for d in idle_details)
+    assert not any("no speech" in d for d in idle_details)
+    ctl.shutdown()
+
+
+def test_too_short_wins_over_low_level():
+    rec = FakeChunkRecorder()
+    rec.final = make_recording(duration=0.1, too_short=True, silent=True, low_level=True)
+    ctl, states, results, injected = build(rec, SequenceEngine([]))
+
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    idle_details = [d for s, d in states if s is State.IDLE]
+    assert any("too short" in d for d in idle_details)
+    ctl.shutdown()
+
+
+# ---- whisper special-token scrub ----
+
+def test_special_tokens_scrubbed_from_transcripts():
+    rec = FakeChunkRecorder()
+    engine = SequenceEngine(["<|hi|> chalo shuru karte hain"])
+    ctl, states, results, injected = build(rec, engine)
+
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert injected == ["chalo shuru karte hain"]  # token gone, text intact
+    ctl.shutdown()
+
+
+def test_token_only_transcript_treated_as_empty():
+    rec = FakeChunkRecorder()
+    engine = SequenceEngine(["<|hi|><|endoftext|>"])
+    ctl, states, results, injected = build(rec, engine)
+
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert injected == []
+    assert results == []  # nothing delivered, nothing recorded
+    ctl.shutdown()
+
+
+def test_scrub_leaves_ordinary_angle_brackets_alone():
+    from whisperflow.controller import _SPECIAL_TOKEN_RE
+
+    assert _SPECIAL_TOKEN_RE.sub("", "a < b | c > d") == "a < b | c > d"
+    assert _SPECIAL_TOKEN_RE.sub("", "x <|nospeech|> y") == "x  y"

@@ -419,7 +419,10 @@ device = {t(a.device)}         # "default" = system default (re-checked every re
                            # deliver pure silence when their companion app isn't streaming.
 max_seconds = {t(a.max_seconds)}          # hard recording cap
 min_seconds = {t(a.min_seconds)}          # discard shorter recordings
-silence_rms = {t(a.silence_rms)}       # below this RMS the recording is treated as silence (no transcription)
+silence_rms = {t(a.silence_rms)}       # below this RMS the recording is treated as silence (no transcription);
+                           # also scales the capped-gain guard (4x this when the mic is so faint
+                           # the auto-gain cap can't help — lower it if a genuinely quiet mic
+                           # keeps reporting "Mic level near zero")
 
 [streaming]
 # Live typing: transcribe at natural pauses WHILE you speak, so long dictations

@@ -42,6 +42,12 @@ POS_FILE = data_dir() / "overlay_pos.txt"
 N_BARS = 14
 
 
+def default_position(screen_w: int, screen_h: int, width: int, height: int) -> tuple[int, int]:
+    """Bottom-center resting spot for the pill — pure so it's testable and
+    shared by first placement and the Settings "Reset pill position" button."""
+    return (screen_w - width) // 2, screen_h - height - 80
+
+
 class Overlay:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -149,13 +155,26 @@ class Overlay:
         x = y = None
         try:
             x, y = (int(v) for v in POS_FILE.read_text().strip().split(","))
-        except (FileNotFoundError, ValueError):
+        except (OSError, ValueError):
             pass
         screen_w = self.win.winfo_screenwidth()
         screen_h = self.win.winfo_screenheight()
         if x is None or not (0 <= x <= screen_w - 40 and 0 <= y <= screen_h - 40):
-            x = (screen_w - self.width) // 2
-            y = screen_h - self.height - 80
+            x, y = default_position(screen_w, screen_h, self.width, self.height)
+        self.win.geometry(f"{self.width}x{self.height}+{x}+{y}")
+
+    def reset_position(self) -> None:
+        """Forget any dragged position and re-center at the default spot —
+        the recovery for "I dragged the pill somewhere and lost it"
+        (Settings → Reset pill position). Runs on the Tk thread."""
+        try:
+            POS_FILE.unlink(missing_ok=True)
+        except OSError:
+            pass  # a stuck file just means the old spot returns next launch
+        x, y = default_position(
+            self.win.winfo_screenwidth(), self.win.winfo_screenheight(),
+            self.width, self.height,
+        )
         self.win.geometry(f"{self.width}x{self.height}+{x}+{y}")
 
     def _mouse_down(self, event) -> None:

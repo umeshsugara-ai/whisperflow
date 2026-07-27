@@ -27,6 +27,22 @@ log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16_000
 
+# Auto-gain (see Recorder._finalize): quiet-but-real audio is normalized up to
+# GAIN_TARGET peak, never amplifying more than GAIN_CAP. When even the cap
+# can't reach the target (peak < GAIN_TARGET/GAIN_CAP) the input is so faint
+# it's indistinguishable from a collapsed mic level — sending it to STT
+# produces whisper hallucinations typed into the user's window (live incident
+# 2026-07-28: 40x-amplified noise floor -> 207 chars of garbage + a raw
+# "<|hi|>" token injected). In that capped regime the silence bar is raised
+# by CAPPED_SILENCE_FACTOR; lowering [audio].silence_rms scales both.
+GAIN_TARGET = 0.85
+GAIN_CAP = 40.0
+CAPPED_SILENCE_FACTOR = 4.0
+
+# a mic-level collapse shows up as a RUN of capped low-level recordings; one
+# alone is just a quiet room. Warn once per streak (lands on the Home strip).
+LOW_LEVEL_STREAK = 3
+
 
 def level_fraction(peak: float) -> float:
     """Map a raw input peak to a 0..1 UI level — shared by the overlay
@@ -49,6 +65,11 @@ class Recording:
     rms: float
     too_short: bool
     silent: bool
+    # True only when the capped-gain guard CHANGED the verdict: input was in
+    # the "would have passed the plain silence gate, but the mic level is
+    # collapsed" band. Plain silence stays False — the UI uses this to say
+    # "mic level near zero" instead of the generic "no speech".
+    low_level: bool = False
 
 
 def list_input_devices(devices=None, hostapis=None) -> list[str]:
@@ -198,6 +219,7 @@ class Recorder:
         self._voice_peak = max(cfg.silence_rms * 8.0, 0.004)
         self._last_voice: float = 0.0  # monotonic time of last voiced block
         self._voiced_since_drain = False
+        self._low_level_streak = 0  # consecutive capped-gain low-level recordings
 
     def set_config(self, cfg: AudioConfig) -> None:
         """Swap the audio config live (Settings save / tray file reload).
@@ -318,15 +340,32 @@ class Recorder:
         duration_s = len(samples) / SAMPLE_RATE
         # silence decision uses the ORIGINAL level, before any gain
         rms = float(np.sqrt(np.mean(samples**2))) if len(samples) else 0.0
+        peak = float(np.abs(samples).max()) if len(samples) else 0.0
+
+        # Capped-gain guard: when even GAIN_CAP can't lift the peak to
+        # GAIN_TARGET, "signal" this faint is a collapsed mic level, and
+        # amplified noise floor sent to whisper comes back as hallucinated
+        # text typed into the user's window. In that regime the silence bar
+        # is CAPPED_SILENCE_FACTOR higher. low_level marks exactly the band
+        # where this guard flipped the verdict — plain silence stays False.
+        capped = 0.0 < peak < GAIN_TARGET / GAIN_CAP
+        low_level = capped and (
+            self.cfg.silence_rms <= rms < self.cfg.silence_rms * CAPPED_SILENCE_FACTOR
+        )
+        silent = rms < self.cfg.silence_rms or low_level
+        self._track_low_level(low_level, silent)
 
         # Auto-gain: laptop mics at low Windows input volume produce faint
         # audio (peaks ~0.005) that VAD discards as silence. If there IS
         # signal but it's quiet, normalize to a healthy peak before STT.
-        peak = float(np.abs(samples).max()) if len(samples) else 0.0
-        if 0.0 < peak < 0.30 and rms > 0.0:
-            gain = min(0.85 / peak, 40.0)  # cap gain so pure noise isn't blown up
+        # Silent recordings are never amplified — they never reach STT.
+        if not silent and 0.0 < peak < 0.30:
+            gain = min(GAIN_TARGET / peak, GAIN_CAP)
             samples = samples * gain
-            log.info("auto-gain applied: peak %.4f -> %.2f (gain %.1fx)", peak, min(peak * gain, 0.85), gain)
+            log.info(
+                "auto-gain applied: peak %.4f -> %.2f (gain %.1fx)",
+                peak, min(peak * gain, GAIN_TARGET), gain,
+            )
 
         return Recording(
             samples=samples,
@@ -334,8 +373,29 @@ class Recorder:
             duration_s=duration_s,
             rms=rms,
             too_short=duration_s < self.cfg.min_seconds,
-            silent=rms < self.cfg.silence_rms,
+            silent=silent,
+            low_level=low_level,
         )
+
+    def _track_low_level(self, low_level: bool, silent: bool) -> None:
+        """Mic-health streak: a collapsed input level shows up as a RUN of
+        low_level recordings (a mix of in-band and below-band chunks, so
+        plain silence is NEUTRAL — only real speech resets). Warn exactly
+        once per streak; a healthy recording re-arms the warning. Called
+        from _finalize, which runs on both the worker thread (live chunks)
+        and the hotkey thread (stop) — hence the lock."""
+        with self._lock:
+            if low_level:
+                self._low_level_streak += 1
+                if self._low_level_streak == LOW_LEVEL_STREAK:
+                    log.warning(
+                        "Mic level near zero for %d recordings — Windows input volume "
+                        "or another app (e.g. Zoom auto-adjust) may have lowered it. "
+                        "Open Settings → Test mic.",
+                        LOW_LEVEL_STREAK,
+                    )
+            elif not silent:
+                self._low_level_streak = 0
 
     def stop(self) -> Recording:
         """End capture and return the buffered audio."""

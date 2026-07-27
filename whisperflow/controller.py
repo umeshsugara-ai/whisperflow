@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -35,6 +36,12 @@ from whisperflow.config import StreamingConfig
 from whisperflow.hotkey import HotkeyEvent
 
 log = logging.getLogger(__name__)
+
+# Whisper-family special tokens ("<|hi|>", "<|endoftext|>", …) leak into the
+# transcript when the model hallucinates on marginal audio — and would be
+# TYPED into the user's window verbatim (live incident 2026-07-28). Scrubbed
+# here, at the one choke point every provider's text passes through.
+_SPECIAL_TOKEN_RE = re.compile(r"<\|[^|>]{1,24}\|>")
 
 
 def is_prompt_echo(text: str, initial_prompt: str, max_words: int = 14) -> bool:
@@ -249,7 +256,7 @@ class Controller:
             language=self.language,
             initial_prompt=prompt,
         )
-        raw_text = result.text
+        raw_text = _SPECIAL_TOKEN_RE.sub("", result.text).strip()
         session.duration_s += result.duration_s
         session.transcribe_seconds += result.transcribe_seconds
         if result.language:
@@ -335,7 +342,14 @@ class Controller:
         # pending/injected text implies raw_parts, so raw_parts alone tells us
         # whether the session heard anything before this final tail
         if (recording.too_short or recording.silent) and not session.raw_parts:
-            reason = "too short" if recording.too_short else "no speech detected"
+            if recording.too_short:
+                reason = "too short"
+            elif recording.low_level:
+                # capped-gain guard tripped: the mic captured a collapsed
+                # level, not an absent voice — say so instead of "no speech"
+                reason = "mic level near zero"
+            else:
+                reason = "no speech detected"
             log.info("skipping transcription: %s (device: %s)", reason, recording.device_name)
             self._set_state(State.IDLE, reason)
             return

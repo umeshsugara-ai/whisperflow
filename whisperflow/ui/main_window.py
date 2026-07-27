@@ -142,6 +142,8 @@ class MainWindow:
         apply_config: Callable[[], None],
         warnings_source: Callable[[], list[str]] | None = None,
         tab: str = "home",
+        *,
+        reset_overlay: Callable[[], None] | None = None,
     ) -> "MainWindow":
         """Single instance: re-open deiconifies, refreshes, and switches tab."""
         inst = cls._open_instance
@@ -153,12 +155,12 @@ class MainWindow:
                 return inst
             except tk.TclError:
                 cls._open_instance = None
-        inst = cls(root, cfg, history, apply_config, warnings_source)
+        inst = cls(root, cfg, history, apply_config, warnings_source, reset_overlay=reset_overlay)
         cls._open_instance = inst
         inst.show_page(tab)
         return inst
 
-    def __init__(self, root, cfg, history, apply_config, warnings_source=None) -> None:
+    def __init__(self, root, cfg, history, apply_config, warnings_source=None, *, reset_overlay=None) -> None:
         self.cfg = cfg
         self.win = tk.Toplevel(root)
         self.win.title("WhisperFlow")
@@ -196,7 +198,7 @@ class MainWindow:
             ),
             "history": HistoryPane(content, history),
             "dictionary": DictionaryPage(content, cfg, persist),
-            "settings": SettingsPage(content, cfg, persist),
+            "settings": SettingsPage(content, cfg, persist, reset_overlay=reset_overlay),
         }
         for page in self._pages.values():
             page.grid(row=0, column=0, sticky="nsew")
@@ -523,10 +525,14 @@ class DictionaryPage(tk.Frame):
 
 
 class SettingsPage(tk.Frame):
-    def __init__(self, parent, cfg: Config, persist: Callable[[], None]) -> None:
+    def __init__(
+        self, parent, cfg: Config, persist: Callable[[], None],
+        *, reset_overlay: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(parent, bg=BG)
         self.cfg = cfg
         self.persist = persist
+        self._reset_overlay = reset_overlay
 
         style = ttk.Style(self)
         style.configure("WF.TCombobox", fieldbackground=FIELD, background=BTN, foreground=FG)
@@ -623,6 +629,16 @@ class SettingsPage(tk.Frame):
                 overlay_holder, text=text, variable=var, bg=BG, fg=FG, selectcolor=FIELD,
                 activebackground=BG, activeforeground=FG, font=("Segoe UI", 9),
             ).pack(anchor="w")
+        if self._reset_overlay is not None:
+            # immediate action like "Test mic" — not part of Save/rollback.
+            # Recovers a pill dragged somewhere off-track without a restart.
+            reset_row = tk.Frame(overlay_holder, bg=BG)
+            reset_row.pack(anchor="w", pady=(6, 0))
+            _button(reset_row, "Reset pill position", self._do_reset_overlay).pack(side="left")
+            self._reset_status = tk.Label(
+                reset_row, text="", bg=BG, fg=ACCENT_OK, font=("Segoe UI", 8)
+            )
+            self._reset_status.pack(side="left", padx=(10, 0))
 
         autostart_holder = row(10, "Startup", "Applies immediately (Windows login entry).")
         self.autostart_var = tk.BooleanVar()
@@ -969,6 +985,13 @@ class SettingsPage(tk.Frame):
                 sysinfo.disable_autostart()
         except OSError as exc:
             self._status.config(text=f"Autostart failed: {exc}", fg=ACCENT_ERR)
+
+    def _do_reset_overlay(self) -> None:
+        # Settings callbacks already run on the Tk main thread — safe to
+        # touch the overlay window directly, no post() indirection needed
+        self._reset_overlay()
+        self._reset_status.config(text="Pill re-centered ✓")
+        self.after(1500, lambda: self._reset_status.config(text=""))
 
     def _save(self) -> None:
         old = (self.cfg.hotkey.combo, self.cfg.model.language, self.cfg.cleanup.tier,

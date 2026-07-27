@@ -401,6 +401,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
                 apply_config=apply_live,
                 warnings_source=recent_warnings,
                 tab=tab,
+                reset_overlay=overlay.reset_position,
             ),
         )
 

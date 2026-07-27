@@ -19,6 +19,10 @@ def idle_flash(detail: str) -> tuple[str, str] | None:
         return ("warn", "Copied — press Ctrl+V")
     if detail.startswith("injected"):
         return ("done", "Injected ✓")
+    if "mic level" in detail:
+        # capped-gain guard: the mic is capturing a collapsed level (Windows
+        # input volume / another app lowered it) — different fix than "speak up"
+        return ("warn", "Mic level near zero ⚠")
     if "no speech" in detail or "empty transcript" in detail:
         return ("warn", "No speech — check mic ⚠")
     if "too short" in detail:
