@@ -453,7 +453,17 @@ class Controller:
                 if self._state is not State.IDLE:
                     log.debug("RECORD_START ignored in state %s", self._state.name)
                     return
-                device = self.recorder.start()
+                try:
+                    device = self.recorder.start()
+                except Exception as exc:  # noqa: BLE001 — a dead mic must show, not vanish
+                    # without this the hotkey looked completely dead: the
+                    # exception bubbled into the hotkey/UI callback layer
+                    # and the user got no pill, no state change, nothing.
+                    # log.error also lands on the Home warning strip; the
+                    # IDLE detail flashes the pill via idle_flash().
+                    log.error("could not start recording: %s", exc)
+                    self._set_state(State.IDLE, "mic unavailable")
+                    return
                 self._session = _Session()
                 if self._chunking_active():
                     threading.Thread(

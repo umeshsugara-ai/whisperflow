@@ -88,18 +88,40 @@ def list_input_devices(devices=None, hostapis=None) -> list[str]:
     return rows(True) or rows(False)
 
 
-def resolve_device(preference: str) -> tuple[int | None, str]:
+def resolve_device(preference: str, devices=None, hostapis=None) -> tuple[int | None, str]:
     """Return (device_index_or_None_for_default, human_name).
 
     preference == "default" -> system default input device (index None).
-    Anything else -> case-insensitive substring match over input devices;
-    falls back to default with a warning if nothing matches.
+    Anything else -> case-insensitive substring match over input devices,
+    preferring the WASAPI row of a mic that appears under several host
+    APIs; falls back to default with a warning if nothing matches.
+
+    The WASAPI preference matters: the Settings picker shows WASAPI names
+    (list_input_devices), but a first-match scan lands on the same mic's
+    DirectSound row (MME's 31-char truncation stops the needle matching
+    its row) — and DirectSound is the API that fails with PaErrorCode
+    -9999 after sleep/lock, which made a pinned, healthy mic error out.
+    The devices/hostapis params exist for unit tests.
     """
+    if devices is None:
+        devices = sd.query_devices()
     if preference and preference.lower() != "default":
         needle = preference.lower()
-        for idx, dev in enumerate(sd.query_devices()):
-            if dev["max_input_channels"] > 0 and needle in dev["name"].lower():
-                return idx, dev["name"]
+        matches = [
+            (idx, dev)
+            for idx, dev in enumerate(devices)
+            if dev["max_input_channels"] > 0 and needle in dev["name"].lower()
+        ]
+        if matches:
+            try:
+                apis = hostapis if hostapis is not None else sd.query_hostapis()
+                for idx, dev in matches:
+                    if "wasapi" in apis[dev["hostapi"]]["name"].lower():
+                        return idx, dev["name"]
+            except Exception:  # noqa: BLE001 — host-API lookup is best-effort
+                pass
+            idx, dev = matches[0]
+            return idx, dev["name"]
         log.warning("audio device %r not found; using system default", preference)
     default_idx = sd.default.device[0]
     if default_idx is not None and default_idx >= 0:
@@ -230,15 +252,36 @@ class Recorder:
             self._last_voice = 0.0
             self._voiced_since_drain = False
         self._max_notified = False
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype="float32",
-            device=device_idx,
-            callback=self._callback,
-            latency="low",  # minimize device spin-up so the first word isn't clipped
-        )
-        self._stream.start()
+
+        def _open(idx: int | None) -> None:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                device=idx,
+                callback=self._callback,
+                latency="low",  # minimize device spin-up so the first word isn't clipped
+            )
+            self._stream.start()
+
+        try:
+            _open(device_idx)
+        except sd.PortAudioError as exc:
+            # transient host-API failures (DirectSound -9999 after sleep/
+            # lock, device briefly claimed by another app): one retry via
+            # the system default route instead of dying on the first try
+            self._stream = None
+            log.warning("mic open failed on %r (%s) — retrying via system default", self._device_name, exc)
+            time.sleep(0.3)
+            try:
+                _open(None)
+                self._device_name = resolve_device("default")[1]
+            except sd.PortAudioError as exc2:
+                self._stream = None
+                raise RuntimeError(
+                    f"microphone unavailable ({self._device_name}) — check it isn't "
+                    f"in use by another app, then try again"
+                ) from exc2
         log.info("recording started on %r", self._device_name)
         return self._device_name
 

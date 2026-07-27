@@ -96,6 +96,34 @@ def test_happy_path_full_cycle():
     ctl.shutdown()
 
 
+def test_record_start_with_dead_mic_stays_idle_and_reports():
+    """A mic that fails to open (PortAudio -9999 after sleep/lock) must NOT
+    leave the hotkey looking dead: the controller stays IDLE (so the next
+    press works) and fires on_state with the 'mic unavailable' detail the
+    pill maps to a visible warn flash."""
+
+    class DeadMicRecorder(FakeRecorder):
+        def start(self) -> str:
+            raise RuntimeError("microphone unavailable (Realtek) — in use?")
+
+    details: list[tuple[State, str]] = []
+    ctl = Controller(
+        recorder=DeadMicRecorder(),
+        engine=FakeEngine(),
+        inject_text=lambda t: "type",
+        on_state=lambda s, d: details.append((s, d)),
+        on_result=lambda r: None,
+    )
+    ctl.start()
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)  # must not raise
+    assert ctl.state is State.IDLE
+    assert (State.IDLE, "mic unavailable") in details
+    # the very next press still reaches the recorder (state wasn't wedged)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    assert ctl.state is State.IDLE
+    ctl.shutdown()
+
+
 def test_cancel_returns_to_idle_without_transcription():
     rec = FakeRecorder()
     ctl, states, results, injected = build(recorder=rec)

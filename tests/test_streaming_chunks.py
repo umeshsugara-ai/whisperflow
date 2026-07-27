@@ -415,9 +415,41 @@ def test_idle_flash_covers_silent_and_short_outcomes():
     assert idle_flash("empty transcript") == ("warn", "No speech — check mic ⚠")
     assert idle_flash("injected via type") == ("done", "Injected ✓")
     assert idle_flash("clipboard (focus changed)") == ("warn", "Copied — press Ctrl+V")
+    assert idle_flash("mic unavailable") == ("warn", "Mic busy — try again ⚠")
     assert idle_flash("") is None
     assert idle_flash("cancelled") is None
     # every message fits the pill's 28-char label
-    for detail in ("no speech detected", "too short", "injected via type", "clipboard"):
+    for detail in ("no speech detected", "too short", "injected via type", "clipboard", "mic unavailable"):
         flash = idle_flash(detail)
         assert flash is None or len(flash[1]) <= 28
+
+
+def test_resolve_device_prefers_wasapi_row_over_directsound():
+    """The Settings picker pins full WASAPI names; the resolver must pick
+    that mic's WASAPI row, not its DirectSound row (first substring match) —
+    DirectSound is the API that dies with PaErrorCode -9999 after
+    sleep/lock, which broke a correctly-pinned mic."""
+    from whisperflow.audio import resolve_device
+
+    hostapis = [{"name": "MME"}, {"name": "Windows DirectSound"}, {"name": "Windows WASAPI"}]
+    devices = [
+        # MME's 31-char truncation: needle "realtek(r) audio" doesn't match
+        {"name": "Microphone Array (Realtek(R) Au", "max_input_channels": 2, "hostapi": 0},
+        {"name": "Microphone Array (Realtek(R) Audio)", "max_input_channels": 2, "hostapi": 1},
+        {"name": "Microphone Array (Realtek(R) Audio)", "max_input_channels": 2, "hostapi": 2},
+    ]
+    idx, name = resolve_device("Realtek(R) Audio", devices, hostapis)
+    assert idx == 2  # the WASAPI row, not the first (DirectSound) match
+    assert name == "Microphone Array (Realtek(R) Audio)"
+
+
+def test_resolve_device_falls_back_to_first_match_without_wasapi():
+    from whisperflow.audio import resolve_device
+
+    hostapis = [{"name": "Core Audio"}]
+    devices = [
+        {"name": "Built-in Microphone", "max_input_channels": 1, "hostapi": 0},
+    ]
+    idx, name = resolve_device("built-in", devices, hostapis)
+    assert idx == 0
+    assert name == "Built-in Microphone"

@@ -23,4 +23,6 @@ def idle_flash(detail: str) -> tuple[str, str] | None:
         return ("warn", "No speech — check mic ⚠")
     if "too short" in detail:
         return ("warn", "Too short — hold & speak")
+    if "mic unavailable" in detail:
+        return ("warn", "Mic busy — try again ⚠")
     return None
