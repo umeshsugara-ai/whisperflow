@@ -698,3 +698,83 @@ def test_host_api_name_is_diagnostic_never_fatal():
 
     assert isinstance(host_api_name(None), str)
     assert host_api_name(9999) == "?"  # out of range -> no crash, just unknown
+
+
+# ---- failed-device cooldown (don't pay a doomed open on every dictation) ----
+
+def _recorder_with_fake_audio(monkeypatch, fail_indices=()):
+    """Recorder whose device resolution and stream opening are faked, so the
+    cooldown logic can be exercised with no real audio hardware."""
+    import whisperflow.audio as wa
+    from whisperflow.config import AudioConfig
+
+    opened: list = []
+
+    def fake_resolve(pref, devices=None, hostapis=None):
+        return (None, "system default mic") if pref == "default" else (9, "Pinned Mic")
+
+    class FakeStream:
+        def __init__(self, **kw):
+            self.idx = kw.get("device")
+            if self.idx in fail_indices:
+                raise wa.sd.PortAudioError("Error starting stream: -9999")
+
+        def start(self):
+            opened.append(self.idx)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(wa, "resolve_device", fake_resolve)
+    monkeypatch.setattr(wa, "device_warning", lambda *a, **k: "")
+    monkeypatch.setattr(wa, "uses_wasapi", lambda idx: False)
+    monkeypatch.setattr(wa.sd, "InputStream", FakeStream)
+    return wa.Recorder(AudioConfig(device="Pinned Mic")), opened
+
+
+def test_pinned_device_failure_puts_it_in_cooldown(monkeypatch):
+    rec, opened = _recorder_with_fake_audio(monkeypatch, fail_indices=(9,))
+
+    rec.start()  # pinned (9) fails -> falls back to default (None)
+    rec.close()
+    assert opened == [None]
+
+    rec.start()  # second dictation must NOT retry the doomed row
+    rec.close()
+    assert opened == [None, None]  # straight to default, no failed open
+
+
+def test_cooldown_expires_and_the_pinned_device_is_retried(monkeypatch):
+    import whisperflow.audio as wa
+
+    rec, opened = _recorder_with_fake_audio(monkeypatch, fail_indices=(9,))
+    rec.start()
+    rec.close()
+    assert rec._device_cooldown_until > 0
+
+    # pretend the cooldown lapsed AND the device recovered
+    rec._device_cooldown_until = 0.0
+    monkeypatch.setattr(wa.sd, "InputStream", type(
+        "OkStream", (), {
+            "__init__": lambda self, **kw: setattr(self, "idx", kw.get("device")),
+            "start": lambda self: opened.append(self.idx),
+            "stop": lambda self: None, "close": lambda self: None,
+        }))
+    rec.start()
+    rec.close()
+    assert opened[-1] == 9  # transient failures self-heal
+
+
+def test_picking_a_mic_in_settings_clears_the_cooldown(monkeypatch):
+    from dataclasses import replace
+
+    rec, opened = _recorder_with_fake_audio(monkeypatch, fail_indices=(9,))
+    rec.start()
+    rec.close()
+    assert rec._device_cooldown_until > 0
+
+    rec.set_config(replace(rec.cfg, device="Pinned Mic"))  # explicit "try this"
+    assert rec._device_cooldown_until == 0.0

@@ -43,6 +43,16 @@ CAPPED_SILENCE_FACTOR = 4.0
 # alone is just a quiet room. Warn once per streak (lands on the Home strip).
 LOW_LEVEL_STREAK = 3
 
+# How long a pinned device that failed to open is skipped in favour of the
+# system-default route. Some host-API rows fail persistently for a whole app
+# session (seen live: the WASAPI row of a mic that a freshly-started process
+# opens fine — PortAudio caches its device list at init, so a long-running
+# process can hold a stale endpoint), and retrying it on EVERY dictation cost
+# a failed open plus the retry sleep before a single word was captured. A
+# cooldown rather than a permanent skip keeps the ordinary "device was busy
+# for a moment" case self-healing.
+DEVICE_RETRY_COOLDOWN_S = 60.0
+
 
 def level_fraction(peak: float) -> float:
     """Map a raw input peak to a 0..1 UI level — shared by the overlay
@@ -235,6 +245,7 @@ class Recorder:
         self._last_voice: float = 0.0  # monotonic time of last voiced block
         self._voiced_since_drain = False
         self._low_level_streak = 0  # consecutive capped-gain low-level recordings
+        self._device_cooldown_until = 0.0  # monotonic; see DEVICE_RETRY_COOLDOWN_S
 
     def set_config(self, cfg: AudioConfig) -> None:
         """Swap the audio config live (Settings save / tray file reload).
@@ -243,6 +254,9 @@ class Recorder:
         self.cfg = cfg
         self._max_samples = int(cfg.max_seconds * SAMPLE_RATE)
         self._voice_peak = max(cfg.silence_rms * 8.0, 0.004)
+        # picking a mic in Settings is an explicit "try this one" — honour it
+        # immediately instead of making the user wait out an old cooldown
+        self._device_cooldown_until = 0.0
 
     @property
     def device_name(self) -> str:
@@ -300,6 +314,12 @@ class Recorder:
         if self._stream is not None:
             raise RuntimeError("already recording")
         device_idx, self._device_name = resolve_device(self.cfg.device)
+        if device_idx is not None and time.monotonic() < self._device_cooldown_until:
+            # this row failed recently — go straight to the route that worked
+            # instead of paying a doomed open plus the retry sleep every time
+            device_idx = None
+            self._device_name = resolve_device("default")[1]
+            log.debug("pinned device still in cooldown; using system default")
         self.device_warning = device_warning(self.cfg.device, self._device_name)
         if self.device_warning:
             if self._device_name not in self._warned_devices:
@@ -335,9 +355,12 @@ class Recorder:
             # lock, device briefly claimed by another app): one retry via
             # the system default route instead of dying on the first try
             self._stream = None
+            self._device_cooldown_until = time.monotonic() + DEVICE_RETRY_COOLDOWN_S
             log.warning(
-                "mic open failed on %r [index %s, %s] (%s) — retrying via system default",
+                "mic open failed on %r [index %s, %s] (%s) — using the system "
+                "default for the next %.0fs",
                 self._device_name, device_idx, host_api_name(device_idx), exc,
+                DEVICE_RETRY_COOLDOWN_S,
             )
             time.sleep(0.3)
             try:
