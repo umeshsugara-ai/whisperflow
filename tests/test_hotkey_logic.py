@@ -155,6 +155,149 @@ def test_hold_to_talk_still_works_with_double_tap_enabled():
     assert sm.combo_up(t + 1.2) == HotkeyEvent.RECORD_STOP  # held -> push-to-talk
 
 
+# --- the accidental-activation guard: a LONE tap must be discarded ---
+
+
+def test_lone_tap_is_discarded_when_the_window_lapses():
+    """The whole point of double-tap mode: a stray brush of the chord must
+    not leave a recording running that later types a stray paragraph."""
+    sm = make_dt_sm()
+    t = 500.0
+    assert sm.combo_down(t) == HotkeyEvent.RECORD_START  # provisional
+    assert sm.combo_up(t + 0.05) is None
+    assert sm.awaiting_double_tap  # unconfirmed
+    assert sm.double_tap_window_expired(t + 0.4) == HotkeyEvent.RECORD_CANCEL
+    assert not sm.recording
+    assert not sm.awaiting_double_tap
+    # and the next lone tap behaves the same, not as a "second tap"
+    assert sm.combo_down(t + 2.0) == HotkeyEvent.RECORD_START
+
+
+def test_expiry_is_a_no_op_once_the_second_tap_confirmed():
+    sm = make_dt_sm()
+    t = 600.0
+    sm.combo_down(t)
+    sm.combo_up(t + 0.05)
+    sm.combo_down(t + 0.15)  # confirming tap
+    sm.combo_up(t + 0.20)
+    assert not sm.awaiting_double_tap
+    # a timer that fires anyway (already scheduled) must NOT kill the recording
+    assert sm.double_tap_window_expired(t + 0.4) is None
+    assert sm.recording
+
+
+def test_expiry_before_the_window_closes_is_ignored():
+    """Clock re-check: an early/spurious call must not discard a tap the
+    user is still in the middle of completing."""
+    sm = make_dt_sm()
+    t = 700.0
+    sm.combo_down(t)
+    sm.combo_up(t + 0.05)
+    assert sm.double_tap_window_expired(t + 0.1) is None  # only 50ms in
+    assert sm.recording
+
+
+def test_expiry_never_touches_a_held_or_disabled_session():
+    # hold-to-talk: still down, undecided -> not awaiting anything
+    sm = make_dt_sm()
+    t = 800.0
+    sm.combo_down(t)
+    assert sm.double_tap_window_expired(t + 0.5) is None
+    assert sm.recording
+
+    # feature off entirely -> a lone tap is a normal toggle, never discarded
+    off = HotkeyStateMachine(tap_threshold_ms=350, double_tap_ms=0)
+    off.combo_down(t)
+    off.combo_up(t + 0.05)
+    assert off.awaiting_double_tap is False
+    assert off.double_tap_window_expired(t + 5.0) is None
+    assert off.recording
+
+
+# --- listener wiring: the confirmation timer tracks the state machine ---
+
+
+class _FakeTimer:
+    """Records arm/cancel instead of really sleeping."""
+
+    instances: list = []
+
+    def __init__(self, delay, fn):
+        self.delay, self.fn, self.started, self.cancelled = delay, fn, False, False
+        _FakeTimer.instances.append(self)
+
+    def start(self):
+        self.started = True
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def test_listener_arms_timer_on_lone_tap_and_cancels_on_confirm(monkeypatch):
+    import threading
+    import types
+
+    from whisperflow import hotkey as hk
+    from whisperflow.hotkey import DEFAULT_DOUBLE_TAP_MS, HotkeyEvent
+
+    _fake_kb(monkeypatch)
+    monkeypatch.setattr(hk, "physically_down", lambda name: True)
+    _FakeTimer.instances = []
+    monkeypatch.setattr(threading, "Timer", _FakeTimer)
+
+    events: list = []
+    listener = hk.HotkeyListener(
+        "alt+windows", tap_threshold_ms=350, on_event=events.append,
+        double_tap_ms=DEFAULT_DOUBLE_TAP_MS,
+    )
+    down = lambda k: types.SimpleNamespace(name=k, event_type="down")  # noqa: E731
+    up = lambda k: types.SimpleNamespace(name=k, event_type="up")  # noqa: E731
+
+    listener._on_key(down("alt"))
+    listener._on_key(down("windows"))
+    listener._on_key(up("windows"))  # quick release -> provisional toggle
+    assert events == [HotkeyEvent.RECORD_START]
+    armed = [t for t in _FakeTimer.instances if t.started and not t.cancelled]
+    assert len(armed) == 1
+    assert armed[0].delay >= DEFAULT_DOUBLE_TAP_MS / 1000.0  # never fires early
+
+    listener._on_key(down("windows"))  # confirming second tap
+    assert armed[0].cancelled  # window closed, no discard scheduled
+    assert not [t for t in _FakeTimer.instances if t.started and not t.cancelled]
+
+
+def test_listener_timeout_emits_cancel_for_an_unconfirmed_tap(monkeypatch):
+    import threading
+    import types
+
+    from whisperflow import hotkey as hk
+    from whisperflow.hotkey import DEFAULT_DOUBLE_TAP_MS, HotkeyEvent
+
+    _fake_kb(monkeypatch)
+    monkeypatch.setattr(hk, "physically_down", lambda name: True)
+    _FakeTimer.instances = []
+    monkeypatch.setattr(threading, "Timer", _FakeTimer)
+    clock = [1000.0]  # deterministic monotonic clock
+    monkeypatch.setattr(hk.time, "monotonic", lambda: clock[0])
+
+    events: list = []
+    listener = hk.HotkeyListener(
+        "alt+windows", tap_threshold_ms=350, on_event=events.append,
+        double_tap_ms=DEFAULT_DOUBLE_TAP_MS,
+    )
+    listener._on_key(types.SimpleNamespace(name="alt", event_type="down"))
+    listener._on_key(types.SimpleNamespace(name="windows", event_type="down"))
+    clock[0] += 0.05  # quick release -> provisional toggle-start
+    listener._on_key(types.SimpleNamespace(name="windows", event_type="up"))
+
+    timer = [t for t in _FakeTimer.instances if t.started and not t.cancelled][0]
+    clock[0] += 0.5  # the window lapses with no second tap
+    timer.fn()
+
+    assert events == [HotkeyEvent.RECORD_START, HotkeyEvent.RECORD_CANCEL]
+    assert not listener.sm.recording
+
+
 # ---- HotkeyListener.rebind (live combo swap, no keyboard hook needed) ----
 
 
@@ -244,3 +387,128 @@ def test_on_key_updates_liveness_and_swallows_probe_key(monkeypatch):
     down = types.SimpleNamespace(name="alt", event_type="down")
     listener._on_key(down)
     assert "alt" in listener._down_keys  # real keys still work normally
+
+
+# ---- phantom held keys (a missed key-up must not arm a one-key trigger) ----
+
+
+def _fake_kb(monkeypatch):
+    import sys
+    import types
+
+    fake = types.SimpleNamespace(KEY_DOWN="down", KEY_UP="up")
+    monkeypatch.setitem(sys.modules, "keyboard", fake)
+    return fake
+
+
+def test_phantom_modifier_does_not_fire_chord_and_self_heals(monkeypatch):
+    """Live report: "even pressing Alt alone activates it". Cause: the Win
+    key-up was never delivered (UIPI blocks the hook while an elevated
+    window has focus), so "windows" stayed in _down_keys and Alt alone
+    satisfied the chord."""
+    import types
+
+    from whisperflow import hotkey as hk
+
+    _fake_kb(monkeypatch)
+    monkeypatch.setattr(hk, "physically_down", lambda name: False)  # OS: nothing held
+
+    events: list = []
+    listener = hk.HotkeyListener("alt+windows", tap_threshold_ms=350, on_event=events.append)
+    listener._down_keys.add("windows")  # the phantom
+
+    listener._on_key(types.SimpleNamespace(name="alt", event_type="down"))
+
+    assert events == []  # no dictation started
+    assert "windows" not in listener._down_keys  # phantom dropped -> self-healed
+
+
+def test_real_chord_still_fires_when_os_confirms_the_other_key(monkeypatch):
+    import types
+
+    from whisperflow import hotkey as hk
+    from whisperflow.hotkey import HotkeyEvent
+
+    _fake_kb(monkeypatch)
+    monkeypatch.setattr(hk, "physically_down", lambda name: True)  # OS: really held
+
+    events: list = []
+    listener = hk.HotkeyListener("alt+windows", tap_threshold_ms=350, on_event=events.append)
+    listener._down_keys.add("windows")
+
+    listener._on_key(types.SimpleNamespace(name="alt", event_type="down"))
+
+    assert events == [HotkeyEvent.RECORD_START]
+
+
+def test_chord_fires_when_key_state_is_unverifiable(monkeypatch):
+    """Unmappable key (or no user32) -> physically_down returns None; the
+    hook's own bookkeeping is then the only truth and must be trusted."""
+    import types
+
+    from whisperflow import hotkey as hk
+    from whisperflow.hotkey import HotkeyEvent
+
+    _fake_kb(monkeypatch)
+    monkeypatch.setattr(hk, "physically_down", lambda name: None)
+
+    events: list = []
+    listener = hk.HotkeyListener("alt+f13", tap_threshold_ms=350, on_event=events.append)
+    listener._down_keys.add("f13")
+
+    listener._on_key(types.SimpleNamespace(name="alt", event_type="down"))
+
+    assert events == [HotkeyEvent.RECORD_START]
+
+
+def test_just_pressed_key_is_never_re_verified(monkeypatch):
+    """A low-level hook can see a key-down BEFORE GetAsyncKeyState reflects
+    it — re-checking the triggering key would race and kill the hotkey."""
+    import types
+
+    from whisperflow import hotkey as hk
+    from whisperflow.hotkey import HotkeyEvent
+
+    _fake_kb(monkeypatch)
+    asked: list[str] = []
+
+    def spy(name):
+        asked.append(name)
+        return True
+
+    monkeypatch.setattr(hk, "physically_down", spy)
+    events: list = []
+    listener = hk.HotkeyListener("alt+windows", tap_threshold_ms=350, on_event=events.append)
+    listener._down_keys.add("windows")
+
+    listener._on_key(types.SimpleNamespace(name="alt", event_type="down"))
+
+    assert asked == ["windows"]  # the just-pressed "alt" was NOT queried
+    assert events == [HotkeyEvent.RECORD_START]
+
+
+def test_physically_down_returns_none_for_unmapped_keys():
+    from whisperflow.hotkey import physically_down
+
+    assert physically_down("f13") is None
+    assert physically_down("") is None
+    assert physically_down("alt") in (True, False)  # real OS call, either is fine
+
+
+# ---- rebind also swaps the double-tap setting (Settings applies live) ----
+
+
+def test_rebind_updates_double_tap_setting():
+    from whisperflow.hotkey import DEFAULT_DOUBLE_TAP_MS, HotkeyListener
+
+    listener = HotkeyListener("alt+windows", tap_threshold_ms=350, on_event=lambda e: None)
+    assert listener.sm.double_tap_ms == 0
+
+    listener.rebind("alt+windows", DEFAULT_DOUBLE_TAP_MS)
+    assert listener.sm.double_tap_ms == DEFAULT_DOUBLE_TAP_MS
+
+    listener.rebind("alt+windows")  # omitted -> unchanged, not silently reset
+    assert listener.sm.double_tap_ms == DEFAULT_DOUBLE_TAP_MS
+
+    listener.rebind("alt+windows", 0)
+    assert listener.sm.double_tap_ms == 0

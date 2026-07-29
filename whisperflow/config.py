@@ -410,7 +410,9 @@ combo = {t(hk.combo)}      # keys joined by +; parsed by the `keyboard` library
 # keyboard-layout switcher if you use multiple input languages)
 # Avoid "alt+space" — it's the Windows system-menu shortcut.
 tap_threshold_ms = {t(hk.tap_threshold_ms)}     # release faster than this = toggle mode; held longer = hold-to-talk
-double_tap_ms = {t(hk.double_tap_ms)}        # 0 = off; >0 = double-tap the combo to START dictation
+double_tap_ms = {t(hk.double_tap_ms)}        # 0 = off (a single tap starts); >0 = the combo must be tapped
+                           # TWICE within this many ms to start — a lone tap is discarded, which
+                           # is the guard against accidental activation. Hold-to-talk is unaffected.
                            # (Wispr-style). A later single tap stops it.
 
 [audio]

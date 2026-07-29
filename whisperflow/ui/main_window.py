@@ -38,7 +38,7 @@ from whisperflow.config import (
     set_env_var,
 )
 from whisperflow.history import History, average_wpm, compute_streak
-from whisperflow.hotkey import format_hotkey_label
+from whisperflow.hotkey import DEFAULT_DOUBLE_TAP_MS, format_hotkey_label
 from whisperflow.stt import providers as _stt_providers
 from whisperflow.ui import icons
 from whisperflow.ui.engine_picker import badge_line
@@ -115,11 +115,18 @@ def dismiss_guide() -> None:
         pass  # worst case the card shows again next launch
 
 
-def guide_lines(hotkey_label: str) -> list[tuple[str, str]]:
-    """(gesture, what it does) rows for the how-to-use card."""
+def guide_lines(hotkey_label: str, double_tap: bool = False) -> list[tuple[str, str]]:
+    """(gesture, what it does) rows for the how-to-use card. With double-tap
+    on, a single tap no longer starts — the card must say so or it teaches
+    the wrong gesture."""
+    tap = (
+        (f"Double-tap {hotkey_label}", "hands-free: tap twice to start, speak freely, tap to finish")
+        if double_tap
+        else (f"Tap {hotkey_label}", "hands-free: tap to start, speak freely, tap again to finish")
+    )
     return [
         (f"Hold {hotkey_label}", "speak while holding, release — your words are typed"),
-        (f"Tap {hotkey_label}", "hands-free: tap to start, speak freely, tap again to finish"),
+        tap,
         ("Esc", "cancel a recording (nothing is typed)"),
     ]
 
@@ -253,7 +260,9 @@ class HomePage(tk.Frame):
         # left this card stuck showing the combo from the first open.
         self._guide_gesture_labels: list[tk.Label] = []
         if cfg is not None and not guide_dismissed():
-            self._build_guide_card(format_hotkey_label(cfg.hotkey.combo))
+            self._build_guide_card(
+                format_hotkey_label(cfg.hotkey.combo), cfg.hotkey.double_tap_ms > 0
+            )
 
         cards = tk.Frame(self, bg=BG)
         cards.pack(fill="x", padx=16)
@@ -286,7 +295,9 @@ class HomePage(tk.Frame):
 
     def refresh(self) -> None:
         if self.cfg is not None and self._guide_gesture_labels:
-            lines = guide_lines(format_hotkey_label(self.cfg.hotkey.combo))
+            lines = guide_lines(
+                format_hotkey_label(self.cfg.hotkey.combo), self.cfg.hotkey.double_tap_ms > 0
+            )
             try:
                 for widget, (gesture, _what) in zip(self._guide_gesture_labels, lines):
                     widget.config(text=gesture)
@@ -332,7 +343,7 @@ class HomePage(tk.Frame):
             ).pack(side="left", fill="x", expand=True)
             _button(row, "Copy", lambda text=e.get("injected", ""): self._copy(text), pady=0).pack(side="right")
 
-    def _build_guide_card(self, hotkey_label: str) -> None:
+    def _build_guide_card(self, hotkey_label: str, double_tap: bool = False) -> None:
         card = tk.Frame(self, bg=CARD, padx=14, pady=10)
         card.pack(fill="x", padx=16, pady=(0, 10))
         head = tk.Frame(card, bg=CARD)
@@ -346,7 +357,7 @@ class HomePage(tk.Frame):
             card.destroy()
 
         _button(head, "Got it", _dismiss, pady=0).pack(side="right")
-        for gesture, what in guide_lines(hotkey_label):
+        for gesture, what in guide_lines(hotkey_label, double_tap):
             row = tk.Frame(card, bg=CARD)
             row.pack(fill="x", pady=(4, 0))
             gesture_label = tk.Label(
@@ -586,10 +597,19 @@ class SettingsPage(tk.Frame):
         if cfg.hotkey.combo not in combos:
             combos.insert(0, cfg.hotkey.combo)
         self.hotkey_var = tk.StringVar()
+        hotkey_holder = row(
+            0, "Hotkey", "Applies immediately on Save. Avoid alt+space (Windows system menu)."
+        )
         ttk.Combobox(
-            row(0, "Hotkey", "Applies immediately on Save. Avoid alt+space (Windows system menu)."),
-            textvariable=self.hotkey_var, values=combos, state="readonly", width=24,
+            hotkey_holder, textvariable=self.hotkey_var, values=combos,
+            state="readonly", width=24,
         ).pack(anchor="w")
+        self.double_tap_var = tk.BooleanVar()
+        tk.Checkbutton(
+            hotkey_holder, text="Require a double-tap to start (fewer accidental triggers)",
+            variable=self.double_tap_var, bg=BG, fg=FG, selectcolor=FIELD,
+            activebackground=BG, activeforeground=FG, font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(4, 0))
 
         self.language_var = tk.StringVar()
         ttk.Combobox(
@@ -745,6 +765,7 @@ class SettingsPage(tk.Frame):
 
     def refresh(self) -> None:
         self.hotkey_var.set(self.cfg.hotkey.combo)
+        self.double_tap_var.set(self.cfg.hotkey.double_tap_ms > 0)
         label = next((lb for lb, v in LANGUAGE_CHOICES if v == self.cfg.model.language), LANGUAGE_CHOICES[0][0])
         self.language_var.set(label)
         self.tier_var.set(self.cfg.cleanup.tier)
@@ -999,8 +1020,14 @@ class SettingsPage(tk.Frame):
                self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
                self.cfg.model.cloud_model, self.cfg.model.api_key_env, self.cfg.model.name,
                self.cfg.model.device, self.cfg.model.compute_type, self.cfg.streaming.enabled,
-               self.cfg.audio.device)
+               self.cfg.audio.device, self.cfg.hotkey.double_tap_ms)
         self.cfg.hotkey.combo = self.hotkey_var.get()
+        # keep any custom ms the user set by hand in config.toml — only the
+        # off->on transition needs to invent a value
+        if self.double_tap_var.get():
+            self.cfg.hotkey.double_tap_ms = self.cfg.hotkey.double_tap_ms or DEFAULT_DOUBLE_TAP_MS
+        else:
+            self.cfg.hotkey.double_tap_ms = 0
         self.cfg.model.language = self._selected_language()
         self.cfg.cleanup.tier = self.tier_var.get()
         self.cfg.streaming.enabled = self.streaming_var.get()
@@ -1048,7 +1075,7 @@ class SettingsPage(tk.Frame):
              self.cfg.overlay.always_visible, self.cfg.overlay.show_hint, self.cfg.model.engine,
              self.cfg.model.cloud_model, self.cfg.model.api_key_env, self.cfg.model.name,
              self.cfg.model.device, self.cfg.model.compute_type, self.cfg.streaming.enabled,
-             self.cfg.audio.device) = old
+             self.cfg.audio.device, self.cfg.hotkey.double_tap_ms) = old
             self._status.config(text=str(exc), fg=ACCENT_ERR)
             return
         self._status.config(text="Saved ✓ — applied", fg=ACCENT_OK)

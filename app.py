@@ -356,7 +356,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         # the current AudioConfig so a mic picked in Settings (in-place
         # mutation) AND a tray file-reload (object replacement) both take effect
         ctl.recorder.set_config(cfg.audio)
-        listener.rebind(cfg.hotkey.combo)
+        listener.rebind(cfg.hotkey.combo, cfg.hotkey.double_tap_ms)
         overlay.persistent = cfg.overlay.always_visible
         overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)
         new_snapshot = _model_snapshot()

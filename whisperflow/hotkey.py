@@ -6,12 +6,15 @@ One binding (default Ctrl+Win) serves both trigger modes:
 - held longer                        -> HOLD-TO-TALK: release stops+transcribes;
 - Esc during a recording             -> CANCEL (recording discarded).
 
-When double_tap_ms > 0 a Wispr-style double-tap gesture is enabled: a second
-tap arriving within that window of a fresh toggle-start is read as "confirm and
-keep recording" instead of the instant start->stop that a fast double-press
-would otherwise produce. A later single tap then stops it, and the trailing tap
-of a double-tap-to-stop is swallowed so it does not restart recording. With
-double_tap_ms == 0 (the default) behaviour is unchanged.
+When double_tap_ms > 0 the combo must be tapped TWICE to start dictation: the
+first tap starts capturing provisionally, and unless a confirming second tap
+arrives within that window the recording is discarded (nothing is transcribed
+or typed). This is the guard against accidental activation — a stray brush of
+the chord costs a brief pill blink, not a stray paragraph. A later single tap
+stops a confirmed recording, and the trailing tap of a double-tap-to-stop is
+swallowed so it does not restart recording. Hold-to-talk is unaffected: holding
+past tap_threshold_ms records and transcribes on release, no second tap needed.
+With double_tap_ms == 0 (the default) a single tap starts as usual.
 
 The timing logic lives in `HotkeyStateMachine` as a pure, clock-injectable
 class so it is unit-testable without a real keyboard hook. `HotkeyListener`
@@ -52,6 +55,45 @@ def format_hotkey_label(combo: str) -> str:
     return "+".join(_LABEL_TOKENS.get(p, p.title()) for p in parts)
 
 
+# Physical key-state verification. The listener tracks held keys in an
+# accumulated set, so ONE missed key-up leaves a phantom modifier "held"
+# forever — after which the other combo key ALONE satisfies the chord and
+# fires dictation (live report: "even pressing Alt alone activates it").
+# Missed key-ups are routine, not exotic: while an elevated window has
+# focus, UIPI blocks our low-level hook entirely, so the release of a key
+# pressed just before that window appeared never reaches us. GetAsyncKeyState
+# is the OS's own answer to "is this key really down right now".
+_VK_BY_NAME = {
+    "alt": (0x12,),  # VK_MENU — either side
+    "ctrl": (0x11,),  # VK_CONTROL
+    "control": (0x11,),
+    "shift": (0x10,),  # VK_SHIFT
+    "windows": (0x5B, 0x5C),  # VK_LWIN / VK_RWIN — no combined code exists
+    "space": (0x20,),
+}
+_KEY_DOWN_BIT = 0x8000
+
+# What the Settings "require a double-tap" checkbox writes into
+# [hotkey].double_tap_ms. Wide enough for a comfortable human double-tap,
+# short enough that two deliberate separate taps aren't merged into one.
+DEFAULT_DOUBLE_TAP_MS = 300
+
+
+def physically_down(name: str) -> bool | None:
+    """True/False per the OS, or None when the key isn't mappable (then the
+    hook's own bookkeeping is all we have and the caller should trust it)."""
+    vks = _VK_BY_NAME.get(name)
+    if not vks:
+        return None
+    try:
+        import ctypes
+
+        get_state = ctypes.windll.user32.GetAsyncKeyState
+    except (AttributeError, OSError):  # non-Windows / no user32 — can't verify
+        return None
+    return any(get_state(vk) & _KEY_DOWN_BIT for vk in vks)
+
+
 class HotkeyEvent(Enum):
     RECORD_START = auto()  # begin capturing audio
     RECORD_STOP = auto()  # stop and transcribe
@@ -85,6 +127,28 @@ class HotkeyStateMachine:
     @property
     def recording(self) -> bool:
         return self._phase in (_Phase.DOWN_UNDECIDED, _Phase.HOLD_RECORDING, _Phase.TOGGLE_RECORDING)
+
+    @property
+    def awaiting_double_tap(self) -> bool:
+        """A provisional tap-start still waiting for its confirming second
+        tap — the listener arms a timer on this and discards if it lapses."""
+        return (
+            self.double_tap_ms > 0
+            and self._phase is _Phase.TOGGLE_RECORDING
+            and not self._dt_locked
+        )
+
+    def double_tap_window_expired(self, now: float) -> HotkeyEvent | None:
+        """The confirming second tap never came, so the first one was
+        accidental: discard the audio. Deliberately re-checks the clock
+        rather than trusting the timer — a late/spurious call must not kill
+        a recording that was confirmed in the meantime."""
+        if not self.awaiting_double_tap:
+            return None
+        if (now - self._toggle_at) * 1000.0 < self.double_tap_ms:
+            return None
+        self._phase = _Phase.IDLE
+        return HotkeyEvent.RECORD_CANCEL
 
     def combo_down(self, now: float) -> HotkeyEvent | None:
         if self._phase == _Phase.IDLE:
@@ -193,6 +257,7 @@ class HotkeyListener:
         self.last_event_monotonic: float = 0.0  # ANY key seen by our handler
         self._watch_stop = threading.Event()
         self._watch_thread: threading.Thread | None = None
+        self._dt_timer: threading.Timer | None = None  # double-tap confirmation window
 
     # `keyboard` lib normalizes "windows" as "windows"/"left windows" etc.
     @staticmethod
@@ -222,19 +287,62 @@ class HotkeyListener:
             if kb_event.event_type == kb.KEY_DOWN:
                 if name == "esc":
                     self._emit(self.sm.esc())
+                    self._sync_double_tap_timer()
                     return
                 self._down_keys.add(name)
                 if all(k in self._down_keys for k in self._keys):
-                    if not self._combo_active:
+                    if not self._combo_active and self._chord_is_real(name):
                         self._combo_active = True
                         self._emit(self.sm.combo_down(now))
+                        self._sync_double_tap_timer()
             else:  # KEY_UP
                 self._down_keys.discard(name)
                 if self._combo_active and name in self._keys:
                     self._combo_active = False
                     self._emit(self.sm.combo_up(now))
+                    self._sync_double_tap_timer()
 
-    def rebind(self, combo: str) -> None:
+    def _sync_double_tap_timer(self) -> None:
+        """Keep the confirmation timer in step with the state machine: armed
+        exactly while a provisional tap-start is waiting, cancelled the moment
+        it is confirmed, stopped, or cancelled. Callers hold self._lock."""
+        if self._dt_timer is not None:
+            self._dt_timer.cancel()
+            self._dt_timer = None
+        if not self.sm.awaiting_double_tap:
+            return
+        # small grace so the timer never fires a hair EARLY and gets rejected
+        # by double_tap_window_expired's own clock re-check
+        delay = self.sm.double_tap_ms / 1000.0 + 0.02
+        self._dt_timer = threading.Timer(delay, self._on_double_tap_timeout)
+        self._dt_timer.daemon = True
+        self._dt_timer.start()
+
+    def _on_double_tap_timeout(self) -> None:
+        with self._lock:
+            self._dt_timer = None
+            self._emit(self.sm.double_tap_window_expired(time.monotonic()))
+
+    def _chord_is_real(self, just_pressed: str) -> bool:
+        """Guard against phantom held keys: ask the OS whether the OTHER
+        combo keys are actually down. The key that just fired this event is
+        trusted as-is — a low-level hook can see a key-down before
+        GetAsyncKeyState reflects it, and re-checking it here would be a race
+        that silently kills the hotkey. Any key the OS says is NOT held is
+        dropped from the set, so the phantom self-heals instead of arming a
+        one-key trigger forever."""
+        stale = [
+            k for k in self._keys
+            if k != just_pressed and physically_down(k) is False
+        ]
+        if not stale:
+            return True
+        for k in stale:
+            self._down_keys.discard(k)
+        log.debug("phantom held key(s) dropped, chord not fired: %s", stale)
+        return False
+
+    def rebind(self, combo: str, double_tap_ms: int | None = None) -> None:
         """Live-swap the combo (Settings saves apply immediately, no restart).
         The keyboard hook itself is combo-agnostic — only the key set the
         handler matches against changes, so no unhook/rehook is needed."""
@@ -243,7 +351,13 @@ class HotkeyListener:
             self._keys = [k.strip().lower() for k in combo.split("+") if k.strip()]
             self._down_keys.clear()
             self._combo_active = False
-        log.info("hotkey listener rebound: combo=%s", combo)
+            if double_tap_ms is not None:
+                self.sm.double_tap_ms = double_tap_ms
+            self._sync_double_tap_timer()  # e.g. double-tap just switched off
+        log.info(
+            "hotkey listener rebound: combo=%s double_tap_ms=%s",
+            combo, self.sm.double_tap_ms,
+        )
 
     def rearm(self) -> None:
         """Tear the OS-level hook down and re-install it.
@@ -342,6 +456,10 @@ class HotkeyListener:
         import keyboard as kb
 
         self._watch_stop.set()
+        with self._lock:
+            if self._dt_timer is not None:
+                self._dt_timer.cancel()
+                self._dt_timer = None
         for h in self._hooks:
             kb.unhook(h)
         self._hooks.clear()
