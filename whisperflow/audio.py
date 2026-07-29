@@ -150,6 +150,21 @@ def resolve_device(preference: str, devices=None, hostapis=None) -> tuple[int | 
     return None, "system default"
 
 
+def host_api_name(device_idx: int | None) -> str:
+    """Host API behind a device index ("Windows WASAPI", "MME", …), or "?" if
+    it can't be determined. Diagnostics only: several host APIs expose the
+    SAME mic under the same name, so a failure log that prints only the name
+    can't tell you which backend actually failed."""
+    try:
+        devices = sd.query_devices()
+        hostapis = sd.query_hostapis()
+        if device_idx is None:
+            device_idx = sd.default.device[0]
+        return hostapis[devices[device_idx]["hostapi"]]["name"]
+    except Exception:  # noqa: BLE001 — never let a log line break recording
+        return "?"
+
+
 def uses_wasapi(device_idx: int | None, devices=None, hostapis=None) -> bool:
     """True when the given input device (None = system default) is hosted by
     WASAPI. Streams opened on WASAPI devices need
@@ -320,11 +335,15 @@ class Recorder:
             # lock, device briefly claimed by another app): one retry via
             # the system default route instead of dying on the first try
             self._stream = None
-            log.warning("mic open failed on %r (%s) — retrying via system default", self._device_name, exc)
+            log.warning(
+                "mic open failed on %r [index %s, %s] (%s) — retrying via system default",
+                self._device_name, device_idx, host_api_name(device_idx), exc,
+            )
             time.sleep(0.3)
             try:
                 _open(None)
                 self._device_name = resolve_device("default")[1]
+                log.info("fell back to system default [%s]", host_api_name(None))
             except sd.PortAudioError as exc2:
                 self._stream = None
                 raise RuntimeError(
@@ -417,6 +436,20 @@ class Recorder:
             rec.silent,
         )
         return rec
+
+    def close(self) -> None:
+        """Force-release the device, swallowing errors — the idempotent
+        cleanup a `finally` can always call. stop() is the normal path; this
+        exists so a failed stop() can't leave the mic held open, which would
+        make every later recording fail to claim the device until restart."""
+        stream, self._stream = self._stream, None
+        if stream is None:
+            return
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:  # noqa: BLE001 — releasing is best-effort by definition
+            log.debug("stream close failed during forced release", exc_info=True)
 
     def take_pending(self) -> list[np.ndarray] | None:
         """Swap out the audio buffered so far WITHOUT stopping the stream —

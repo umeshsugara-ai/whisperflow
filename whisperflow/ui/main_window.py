@@ -953,8 +953,8 @@ class SettingsPage(tk.Frame):
         test_cfg = replace(self.cfg.audio, device=mic_choice_to_config(self.mic_var.get()))
 
         def worker() -> None:
+            rec = Recorder(test_cfg)
             try:
-                rec = Recorder(test_cfg)
                 rec.start()
                 shared["recorder"] = rec
                 time.sleep(3.0)
@@ -979,6 +979,11 @@ class SettingsPage(tk.Frame):
                     text += f"\n⚠ {rec.device_warning}"
             except Exception as exc:  # noqa: BLE001 — a mic test must never crash Settings
                 text, color = f"✗ Mic test failed: {exc}", ACCENT_ERR
+            finally:
+                # a test that threw between start() and stop() used to leave
+                # the mic HELD OPEN, and every later dictation then failed to
+                # claim the device until the app was restarted
+                rec.close()
             shared["verdict"] = (text, color)
 
         def poll() -> None:

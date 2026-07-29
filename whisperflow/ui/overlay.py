@@ -49,8 +49,9 @@ def default_position(screen_w: int, screen_h: int, width: int, height: int) -> t
 
 
 class Overlay:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, remember_position: bool = False) -> None:
         self.root = root
+        self.remember_position = remember_position
         self.win = tk.Toplevel(root)
         # withdraw IMMEDIATELY: a Toplevel maps (and Windows activates it) on
         # creation, which would grab foreground focus once at startup.
@@ -152,14 +153,27 @@ class Overlay:
     # ---- placement, drag, and button clicks ----
 
     def _place_initial(self) -> None:
+        """Where the pill sits at launch. By default it ALWAYS returns to the
+        bottom-center resting spot: the pill is a status indicator, not a
+        window you arrange, and a drag that parked it half off-screen (or on a
+        monitor that's since been unplugged) must never survive a restart —
+        losing it was otherwise unrecoverable without editing files. Opt into
+        persistence with [overlay].remember_position = true."""
         x = y = None
-        try:
-            x, y = (int(v) for v in POS_FILE.read_text().strip().split(","))
-        except (OSError, ValueError):
-            pass
         screen_w = self.win.winfo_screenwidth()
         screen_h = self.win.winfo_screenheight()
-        if x is None or not (0 <= x <= screen_w - 40 and 0 <= y <= screen_h - 40):
+        if self.remember_position:
+            try:
+                x, y = (int(v) for v in POS_FILE.read_text().strip().split(","))
+            except (OSError, ValueError):
+                pass
+            # the WHOLE pill must be visible — a position that only clears the
+            # old 40px corner check could still leave it mostly off-screen
+            if x is not None and not (
+                0 <= x <= screen_w - self.width and 0 <= y <= screen_h - self.height
+            ):
+                x = y = None
+        if x is None:
             x, y = default_position(screen_w, screen_h, self.width, self.height)
         self.win.geometry(f"{self.width}x{self.height}+{x}+{y}")
 

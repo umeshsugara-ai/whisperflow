@@ -264,7 +264,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
     root.report_callback_exception = _log_tk_exception
     from whisperflow.hotkey import HotkeyEvent, format_hotkey_label
 
-    overlay = Overlay(root)
+    overlay = Overlay(root, remember_position=cfg.overlay.remember_position)
     overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)  # pill shows the real combo
     overlay.persistent = cfg.overlay.always_visible
     overlay.level_source = lambda: ctl.recorder.last_peak  # live waveform

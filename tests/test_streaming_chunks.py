@@ -641,3 +641,60 @@ def test_scrub_leaves_ordinary_angle_brackets_alone():
 
     assert _SPECIAL_TOKEN_RE.sub("", "a < b | c > d") == "a < b | c > d"
     assert _SPECIAL_TOKEN_RE.sub("", "x <|nospeech|> y") == "x  y"
+
+
+# ---- Recorder.close(): the idempotent release a `finally` can always call ----
+# A Settings mic test that threw between start() and stop() used to leave the
+# mic HELD OPEN, and every later dictation then failed to claim the device
+# until the app was restarted.
+
+def test_close_releases_the_stream_and_is_idempotent():
+    from whisperflow.audio import Recorder
+    from whisperflow.config import AudioConfig
+
+    class FakeStream:
+        def __init__(self):
+            self.stopped = self.closed = False
+
+        def stop(self):
+            self.stopped = True
+
+        def close(self):
+            self.closed = True
+
+    rec = Recorder(AudioConfig())
+    stream = FakeStream()
+    rec._stream = stream
+
+    rec.close()
+    assert stream.stopped and stream.closed
+    assert rec._stream is None
+
+    rec.close()  # second call must be a harmless no-op
+    assert rec._stream is None
+
+
+def test_close_swallows_errors_from_a_broken_stream():
+    from whisperflow.audio import Recorder
+    from whisperflow.config import AudioConfig
+
+    class ExplodingStream:
+        def stop(self):
+            raise OSError("device already gone")
+
+        def close(self):
+            raise OSError("device already gone")
+
+    rec = Recorder(AudioConfig())
+    rec._stream = ExplodingStream()
+    rec.close()  # must not raise — releasing is best-effort by definition
+    assert rec._stream is None  # and the handle is dropped either way
+
+
+def test_host_api_name_is_diagnostic_never_fatal():
+    """Several host APIs expose the same mic under the same name, so failure
+    logs need the backend — but a log helper must never break recording."""
+    from whisperflow.audio import host_api_name
+
+    assert isinstance(host_api_name(None), str)
+    assert host_api_name(9999) == "?"  # out of range -> no crash, just unknown

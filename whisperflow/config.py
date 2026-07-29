@@ -141,6 +141,9 @@ class DictionaryConfig:
 class OverlayConfig:
     always_visible: bool = True  # keep the pill on-screen at rest (Wispr-style)
     show_hint: bool = True  # briefly show "Alt+Win to talk" on first show
+    # False (default): every launch puts the pill back at bottom-center, so a
+    # drag that parked it somewhere unreachable can never outlive a restart.
+    remember_position: bool = False
 
 
 @dataclass
@@ -469,6 +472,8 @@ max_entries = {t(h.max_entries)}          # history.jsonl trimmed to this many e
 always_visible = {t(o.always_visible)}      # keep the pill on-screen at rest so you always see the app is alive
 show_hint = {t(o.show_hint)}           # briefly show the hotkey (e.g. "● Alt+Win") on first show, then
                            # settle to a compact resting pill that expands on hover
+remember_position = {t(o.remember_position)} # false = every launch re-centers the pill at the bottom, so a
+                           # drag can never leave it stranded off-screen; true = keep where you dragged it
 
 [startup]
 auto_register = {t(s.auto_register)}       # on first run, register WhisperFlow to start at Windows login
