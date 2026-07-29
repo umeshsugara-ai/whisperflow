@@ -48,6 +48,36 @@ def default_position(screen_w: int, screen_h: int, width: int, height: int) -> t
     return (screen_w - width) // 2, screen_h - height - 80
 
 
+SPI_GETWORKAREA = 0x0030
+
+
+def work_area(screen_w: int, screen_h: int) -> tuple[int, int, int, int]:
+    """(left, top, right, bottom) of the desktop EXCLUDING the taskbar, or the
+    whole screen if Windows won't say. Dragging the pill down "onto" the
+    taskbar hides it just as completely as dragging it off the screen edge —
+    that's how it went missing at y=828 on an 864px screen."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        rect = wintypes.RECT()
+        if ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0):
+            return rect.left, rect.top, rect.right, rect.bottom
+    except Exception:  # noqa: BLE001 — best-effort; the screen box is a fine fallback
+        pass
+    return 0, 0, screen_w, screen_h
+
+
+def clamp_to_area(x: int, y: int, width: int, height: int, area: tuple[int, int, int, int]) -> tuple[int, int]:
+    """Keep the WHOLE pill inside `area`. Pure: the drag handler's guarantee
+    that a pill can never be parked somewhere it can't be grabbed back from."""
+    left, top, right, bottom = area
+    return (
+        max(left, min(x, right - width)),
+        max(top, min(y, bottom - height)),
+    )
+
+
 class Overlay:
     def __init__(self, root: tk.Tk, remember_position: bool = False) -> None:
         self.root = root
@@ -167,12 +197,13 @@ class Overlay:
                 x, y = (int(v) for v in POS_FILE.read_text().strip().split(","))
             except (OSError, ValueError):
                 pass
-            # the WHOLE pill must be visible — a position that only clears the
-            # old 40px corner check could still leave it mostly off-screen
-            if x is not None and not (
-                0 <= x <= screen_w - self.width and 0 <= y <= screen_h - self.height
-            ):
-                x = y = None
+            # the WHOLE pill must land in the usable desktop — a position that
+            # only cleared the old 40px corner check could still leave it
+            # mostly off-screen, or sitting under the taskbar
+            if x is not None:
+                area = work_area(screen_w, screen_h)
+                if (x, y) != clamp_to_area(x, y, self.width, self.height, area):
+                    x = y = None
         if x is None:
             x, y = default_position(screen_w, screen_h, self.width, self.height)
         self.win.geometry(f"{self.width}x{self.height}+{x}+{y}")
@@ -201,7 +232,12 @@ class Overlay:
         dx, dy = event.x - self._press[0], event.y - self._press[1]
         if abs(dx) + abs(dy) > 3:
             self._dragged = True
-            self.win.geometry(f"+{self.win.winfo_x() + dx}+{self.win.winfo_y() + dy}")
+            x, y = clamp_to_area(
+                self.win.winfo_x() + dx, self.win.winfo_y() + dy,
+                self.width, self.height,
+                work_area(self.win.winfo_screenwidth(), self.win.winfo_screenheight()),
+            )
+            self.win.geometry(f"+{x}+{y}")
 
     def _mouse_up(self, event) -> None:
         press, self._press = self._press, None

@@ -106,3 +106,30 @@ def test_remember_position_rejects_a_mostly_offscreen_spot(tmp_path, monkeypatch
         assert _default_geom(overlay) in overlay.win.geometry()
     finally:
         root.destroy()
+
+
+# ---- the pill can no longer be dragged somewhere it can't be grabbed back ----
+
+
+def test_clamp_keeps_the_whole_pill_inside_the_area():
+    area = (0, 0, 1536, 816)  # 864px screen minus a 48px taskbar
+    # the exact spot the pill went missing at: y=828 is under the taskbar
+    assert ov.clamp_to_area(201, 828, 168, 40, area) == (201, 776)
+    # off each edge
+    assert ov.clamp_to_area(-50, 400, 168, 40, area) == (0, 400)
+    assert ov.clamp_to_area(2000, 400, 168, 40, area) == (1368, 400)
+    assert ov.clamp_to_area(200, -30, 168, 40, area) == (200, 0)
+    # already-valid spots are left exactly alone
+    assert ov.clamp_to_area(300, 500, 168, 40, area) == (300, 500)
+
+
+def test_clamp_respects_a_non_zero_origin():
+    """A taskbar docked left/top shifts the work area's origin."""
+    area = (80, 30, 1536, 864)
+    assert ov.clamp_to_area(0, 0, 168, 40, area) == (80, 30)
+
+
+def test_work_area_is_within_the_screen_and_never_raises():
+    left, top, right, bottom = ov.work_area(1536, 864)
+    assert 0 <= left < right <= 1536
+    assert 0 <= top < bottom <= 864
