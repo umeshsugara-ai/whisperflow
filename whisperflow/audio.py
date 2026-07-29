@@ -314,13 +314,19 @@ class Recorder:
         if self._stream is not None:
             raise RuntimeError("already recording")
         device_idx, self._device_name = resolve_device(self.cfg.device)
+        preference = self.cfg.device
         if device_idx is not None and time.monotonic() < self._device_cooldown_until:
             # this row failed recently — go straight to the route that worked
             # instead of paying a doomed open plus the retry sleep every time
             device_idx = None
             self._device_name = resolve_device("default")[1]
+            # we CHOSE this route, so judge the warning as a default-mic run:
+            # otherwise the pinned name won't match the default's (truncated)
+            # name and the Home strip cries "mic not found" about a mic that
+            # is present and working
+            preference = "default"
             log.debug("pinned device still in cooldown; using system default")
-        self.device_warning = device_warning(self.cfg.device, self._device_name)
+        self.device_warning = device_warning(preference, self._device_name)
         if self.device_warning:
             if self._device_name not in self._warned_devices:
                 self._warned_devices.add(self._device_name)
@@ -366,6 +372,9 @@ class Recorder:
             try:
                 _open(None)
                 self._device_name = resolve_device("default")[1]
+                # the warning was computed for the pinned device we just gave
+                # up on — re-judge it for the mic actually in use
+                self.device_warning = device_warning("default", self._device_name)
                 log.info("fell back to system default [%s]", host_api_name(None))
             except sd.PortAudioError as exc2:
                 self._stream = None

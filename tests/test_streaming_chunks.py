@@ -778,3 +778,43 @@ def test_picking_a_mic_in_settings_clears_the_cooldown(monkeypatch):
 
     rec.set_config(replace(rec.cfg, device="Pinned Mic"))  # explicit "try this"
     assert rec._device_cooldown_until == 0.0
+
+
+def test_cooldown_fallback_does_not_cry_mic_not_found(monkeypatch):
+    """Falling back is a CHOICE, not a missing mic. Judging the warning
+    against the pinned name made the Home strip announce 'mic not found'
+    about a mic that is present and recording fine (MME truncates device
+    names to 31 chars, so the pinned name never matches the default's)."""
+    import whisperflow.audio as wa
+    from whisperflow.config import AudioConfig
+
+    def fake_resolve(pref, devices=None, hostapis=None):
+        # MME's 31-char truncation: the default's name can't contain the pin
+        return (None, "Microphone Array (Realtek(R) Au") if pref == "default" else (9, "Microphone Array (Realtek(R) Audio)")
+
+    class FailingStream:
+        def __init__(self, **kw):
+            if kw.get("device") is not None:
+                raise wa.sd.PortAudioError("Error starting stream: -9999")
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(wa, "resolve_device", fake_resolve)
+    monkeypatch.setattr(wa, "uses_wasapi", lambda idx: False)
+    monkeypatch.setattr(wa.sd, "InputStream", FailingStream)
+
+    rec = wa.Recorder(AudioConfig(device="Realtek(R) Audio"))
+    rec.start()  # pinned fails -> runtime fallback
+    rec.close()
+    assert "not found" not in rec.device_warning
+
+    rec.start()  # cooldown path -> deliberate fallback
+    rec.close()
+    assert "not found" not in rec.device_warning
