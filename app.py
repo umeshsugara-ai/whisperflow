@@ -46,6 +46,15 @@ ERROR_ALREADY_EXISTS = 183
 HEARTBEAT_INTERVAL_S = 20.0
 
 
+def _gesture_summary(cfg) -> str:
+    """The trigger gestures actually in force — the startup line used to
+    hardcode "tap=toggle" and kept claiming it after double-tap mode made a
+    lone tap do nothing, which is exactly the log you read while debugging
+    "why did my tap not start anything"."""
+    start = "double-tap=start" if cfg.hotkey.double_tap_ms > 0 else "tap=toggle"
+    return f"{start}, hold=push-to-talk, Esc=cancel"
+
+
 def _write_heartbeat() -> None:
     try:
         (data_dir() / "heartbeat.txt").write_text(str(time.time()), encoding="utf-8")
@@ -231,7 +240,7 @@ def run_headless(cfg, ctl, listener) -> int:
     ctl.start()
     listener.start()
 
-    log.info("ready — hotkey %s (tap=toggle, hold=push-to-talk, Esc=cancel). Ctrl+C to exit.", cfg.hotkey.combo)
+    log.info("ready — hotkey %s (%s). Ctrl+C to exit.", cfg.hotkey.combo, _gesture_summary(cfg))
     try:
         while True:
             time.sleep(0.5)
@@ -431,7 +440,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         # the quiet path is logon autostart (pill only)
         on_open_main("home")
 
-    log.info("ready — hotkey %s (tap=toggle, hold=push-to-talk, Esc=cancel)", cfg.hotkey.combo)
+    log.info("ready — hotkey %s (%s)", cfg.hotkey.combo, _gesture_summary(cfg))
 
     if cfg.startup.crash_restart:
         # only the watchdog reads this file, and it's only running when

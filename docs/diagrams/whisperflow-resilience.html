@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>WhisperFlow — Self-Healing / Resilience Architecture (case by case)</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --paper: #ffffff;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #d1d5db;
+    --frame: #c7c9cf;
+    --node: #ffffff;
+    --node-stroke: #4b5563;
+    --diamond: #2563eb;
+    --diamond-fill: #ffffff;
+    --start-end-stroke: #2563eb;
+    --edge: #2563eb;
+    --edge-cond: #db2777;
+    --edge-finalize: #16a34a;
+    --edge-feedback: #f59e0b;
+    --edge-parallel: #0891b2;
+    --code: #be123c;
+    --fail: #db2777;
+    --detect: #1d4ed8;
+    --recover: #16a34a;
+    --install: #7c3aed;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 28px 24px 60px; }
+
+  header.top { margin-bottom: 22px; }
+  header.top h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -0.01em; }
+  header.top .sub { color: var(--muted); font-size: 13px; }
+
+  .card { background: var(--paper); border: 1px solid var(--frame); border-radius: 14px; padding: 18px; margin-bottom: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  .card h2 { margin: 0 0 4px; font-size: 16px; }
+  .card .csub { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+
+  .frame { border: 2px solid var(--frame); border-radius: 18px; padding: 14px; background: var(--paper); }
+  .frame-title { text-align: center; font-weight: 600; font-size: 16px; margin-bottom: 6px; color: var(--ink); }
+
+  svg .nlabel { fill: var(--ink); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 12px; font-weight: 500; }
+  svg .nlabel-sm { fill: var(--ink); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 10px; }
+  svg .elabel { fill: var(--ink); font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-style: italic; }
+  svg .clabel { fill: var(--code); font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 10px; }
+  svg .grouplabel { fill: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+  svg .grouplabel.fail { fill: var(--fail); }
+  svg .grouplabel.detect { fill: var(--detect); }
+  svg .grouplabel.recover { fill: var(--recover); }
+  svg .grouplabel.install { fill: var(--install); }
+
+  svg .node { fill: var(--node); stroke: var(--node-stroke); stroke-width: 1.4; rx: 10; }
+  svg .node.bucket { stroke: #0891b2; }
+  svg .node.classify { stroke: var(--detect); }
+  svg .node.cascade { stroke: #db2777; }
+  svg .node.guard { stroke: var(--edge-feedback); stroke-width: 2; }
+  svg .node.success { stroke: #16a34a; }
+  svg .diamond { fill: var(--diamond-fill); stroke: var(--diamond); stroke-width: 1.6; }
+  svg .startend { fill: #ffffff; stroke: var(--start-end-stroke); stroke-width: 1.6; }
+
+  svg .group-fail { fill: rgba(219,39,119,0.04); stroke: var(--fail); stroke-width: 1.5; stroke-dasharray: 6 4; rx: 14; }
+  svg .group-detect { fill: rgba(29,78,216,0.04); stroke: var(--detect); stroke-width: 1.5; stroke-dasharray: 6 4; rx: 14; }
+  svg .group-recover { fill: rgba(22,163,74,0.04); stroke: var(--recover); stroke-width: 1.5; stroke-dasharray: 6 4; rx: 14; }
+  svg .group-install { fill: rgba(124,58,237,0.04); stroke: var(--install); stroke-width: 1.5; stroke-dasharray: 6 4; rx: 14; }
+
+  svg .edge { fill: none; stroke: var(--edge); stroke-width: 1.6; marker-end: url(#arr-blue); }
+  svg .edge-cond { fill: none; stroke: var(--edge-cond); stroke-width: 1.6; marker-end: url(#arr-pink); }
+  svg .edge-finalize { fill: none; stroke: var(--edge-finalize); stroke-width: 1.8; marker-end: url(#arr-green); }
+  svg .edge-feedback { fill: none; stroke: var(--edge-feedback); stroke-width: 1.6; stroke-dasharray: 4 3; marker-end: url(#arr-amber); }
+  svg .edge-parallel { fill: none; stroke: var(--edge-parallel); stroke-width: 1.6; stroke-dasharray: 5 3; marker-end: url(#arr-cyan); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; padding-top: 12px; border-top: 1px dashed var(--line); margin-top: 8px; font-size: 12px; color: var(--muted); }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 28px; height: 2px; border-radius: 2px; }
+  .legend .swatch.dashed { border-top: 2px dashed; border-radius: 0; height: 0; }
+  .legend code { background: #fdf2f8; color: var(--code); padding: 1px 5px; border-radius: 3px; border: 1px solid #fce7f3; font-size: 11px; }
+
+  .notes { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.6; }
+  .notes b { color: var(--ink); }
+  svg a { cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>WhisperFlow — Self-Healing Architecture, Case by Case</h1>
+  <div class="sub">Every failure mode shipped against in this project: what breaks, what detects it, what recovers — with the exact code seams. Two watchers guard the app: an in-process hook watchdog thread and a sibling process (WhisperFlowWatchdog.exe) that survives the app itself. Click a failure node in ① to jump to its case.</div>
+</header>
+
+<!-- ================= ① MASTER MAP ================= -->
+<section class="card">
+  <h2>① Resilience map — failure → detection → recovery</h2>
+  <div class="csub">The full surface at a glance. One row per case; each failure node links to its drill-down card below.</div>
+  <div class="frame">
+    <div class="frame-title">WhisperFlow resilience surface (6 cases)</div>
+    <svg viewBox="0 0 1320 790" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="arr-blue"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>
+        <marker id="arr-pink"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#db2777"/></marker>
+        <marker id="arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#16a34a"/></marker>
+        <marker id="arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#f59e0b"/></marker>
+        <marker id="arr-cyan"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#0891b2"/></marker>
+      </defs>
+
+      <!-- topology strip -->
+      <ellipse class="startend" cx="80" cy="90" rx="42" ry="22"/>
+      <text class="nlabel" x="80" y="94" text-anchor="middle">Launch</text>
+
+      <rect class="node" x="170" y="70" width="300" height="40"/>
+      <text class="nlabel" x="320" y="88" text-anchor="middle">WhisperFlow.exe</text>
+      <text class="nlabel-sm" x="320" y="102" text-anchor="middle">Tk mainloop · hotkey · recorder · engine</text>
+      <line class="edge" x1="122" y1="90" x2="168" y2="90"/>
+
+      <rect class="node bucket" x="560" y="70" width="330" height="40"/>
+      <text class="nlabel" x="725" y="88" text-anchor="middle">WhisperFlowWatchdog.exe (sibling process)</text>
+      <text class="nlabel-sm" x="725" y="102" text-anchor="middle">waits on process handle · crash + hang recovery</text>
+      <line class="edge-parallel" x1="470" y1="90" x2="558" y2="90"/>
+      <text class="clabel" x="514" y="66" text-anchor="middle">_spawn_crash_watchdog()</text>
+
+      <rect class="node bucket" x="960" y="70" width="330" height="40"/>
+      <text class="nlabel" x="1125" y="88" text-anchor="middle">wf-hook-watchdog (in-process thread)</text>
+      <text class="nlabel-sm" x="1125" y="102" text-anchor="middle">F24 probe · keyboard-hook liveness</text>
+      <path class="edge-parallel" d="M 320,70 C 380,20 900,20 1125,68"/>
+
+      <!-- column frames -->
+      <rect class="group-fail" x="30" y="160" width="410" height="590"/>
+      <text class="grouplabel fail" x="45" y="182">FAILURE</text>
+      <rect class="group-detect" x="470" y="160" width="400" height="590"/>
+      <text class="grouplabel detect" x="485" y="182">DETECTION</text>
+      <rect class="group-recover" x="900" y="160" width="390" height="590"/>
+      <text class="grouplabel recover" x="915" y="182">RECOVERY</text>
+
+      <!-- row 1: mic open fails -->
+      <a href="#case-1"><rect class="node" x="60" y="205" width="350" height="40"/>
+      <text class="nlabel" x="235" y="223" text-anchor="middle">Mic open fails at hotkey press</text>
+      <text class="clabel" x="235" y="238" text-anchor="middle">-9997 invalid rate · -9999 DirectSound</text></a>
+      <rect class="node classify" x="500" y="205" width="340" height="40"/>
+      <text class="nlabel" x="670" y="223" text-anchor="middle">Recorder.start() catches PortAudioError</text>
+      <text class="nlabel-sm" x="670" y="238" text-anchor="middle">was: silent 0.00s "flicker"</text>
+      <rect class="node success" x="930" y="205" width="330" height="40"/>
+      <text class="nlabel" x="1095" y="223" text-anchor="middle">WASAPI auto_convert + retry default</text>
+      <text class="nlabel-sm" x="1095" y="238" text-anchor="middle">pill: "Mic busy — try again ⚠"</text>
+      <line class="edge" x1="410" y1="225" x2="498" y2="225"/>
+      <line class="edge-cond" x1="840" y1="225" x2="928" y2="225"/>
+
+      <!-- row 2: hook death -->
+      <a href="#case-2"><rect class="node" x="60" y="300" width="350" height="40"/>
+      <text class="nlabel" x="235" y="318" text-anchor="middle">Sleep/resume kills the keyboard hook</text>
+      <text class="clabel" x="235" y="333" text-anchor="middle">WH_KEYBOARD_LL destroyed by Windows</text></a>
+      <rect class="node classify" x="500" y="300" width="340" height="40"/>
+      <text class="nlabel" x="670" y="318" text-anchor="middle">F24 probe unseen after 120s key silence</text>
+      <text class="nlabel-sm" x="670" y="333" text-anchor="middle">raw SendInput, checked every 30s</text>
+      <rect class="node success" x="930" y="300" width="330" height="40"/>
+      <text class="nlabel" x="1095" y="318" text-anchor="middle">rearm(): fresh OS hook thread</text>
+      <text class="nlabel-sm" x="1095" y="333" text-anchor="middle">hotkey back within ~2.5 min</text>
+      <line class="edge" x1="410" y1="320" x2="498" y2="320"/>
+      <line class="edge-cond" x1="840" y1="320" x2="928" y2="320"/>
+
+      <!-- row 3: crash -->
+      <a href="#case-3"><rect class="node" x="60" y="395" width="350" height="40"/>
+      <text class="nlabel" x="235" y="413" text-anchor="middle">App crashes / gets killed</text>
+      <text class="clabel" x="235" y="428" text-anchor="middle">exit ≠ 0 · native fault · Task Manager</text></a>
+      <rect class="node classify" x="500" y="395" width="340" height="40"/>
+      <text class="nlabel" x="670" y="413" text-anchor="middle">Watchdog: WaitForSingleObject wakes</text>
+      <text class="nlabel-sm" x="670" y="428" text-anchor="middle">reads exit code from the handle</text>
+      <rect class="node success" x="930" y="395" width="330" height="40"/>
+      <text class="nlabel" x="1095" y="413" text-anchor="middle">Crash report + auto-relaunch &lt;8s</text>
+      <text class="nlabel-sm" x="1095" y="428" text-anchor="middle">crash-loop guard: 3 fast deaths → stop</text>
+      <line class="edge" x1="410" y1="415" x2="498" y2="415"/>
+      <line class="edge-cond" x1="840" y1="415" x2="928" y2="415"/>
+
+      <!-- row 4: hang -->
+      <a href="#case-4"><rect class="node" x="60" y="490" width="350" height="40"/>
+      <text class="nlabel" x="235" y="508" text-anchor="middle">App freezes — alive but stuck</text>
+      <text class="clabel" x="235" y="523" text-anchor="middle">Tk mainloop hung, no exit code ever</text></a>
+      <rect class="node classify" x="500" y="490" width="340" height="40"/>
+      <text class="nlabel" x="670" y="508" text-anchor="middle">heartbeat.txt goes stale &gt; 75s</text>
+      <text class="nlabel-sm" x="670" y="523" text-anchor="middle">app ticks it every 20s on the mainloop</text>
+      <rect class="node success" x="930" y="490" width="330" height="40"/>
+      <text class="nlabel" x="1095" y="508" text-anchor="middle">Force-terminate + report + relaunch</text>
+      <text class="nlabel-sm" x="1095" y="523" text-anchor="middle">"stopped responding" — verified in 91s</text>
+      <line class="edge" x1="410" y1="510" x2="498" y2="510"/>
+      <line class="edge-cond" x1="840" y1="510" x2="928" y2="510"/>
+
+      <!-- row 5: virtual mic -->
+      <a href="#case-5"><rect class="node" x="60" y="585" width="350" height="40"/>
+      <text class="nlabel" x="235" y="603" text-anchor="middle">Wrong / virtual default mic (Camo)</text>
+      <text class="clabel" x="235" y="618" text-anchor="middle">fresh config: device="default"</text></a>
+      <rect class="node classify" x="500" y="585" width="340" height="40"/>
+      <text class="nlabel" x="670" y="603" text-anchor="middle">Silence detected + virtual-mic warning</text>
+      <text class="nlabel-sm" x="670" y="618" text-anchor="middle">rms ≈ 0 → pill flash · Home strip warns</text>
+      <rect class="node success" x="930" y="585" width="330" height="40"/>
+      <text class="nlabel" x="1095" y="603" text-anchor="middle">Mic picker: pin real mic + Test bar</text>
+      <text class="nlabel-sm" x="1095" y="618" text-anchor="middle">applies live, survives Windows flips</text>
+      <line class="edge" x1="410" y1="605" x2="498" y2="605"/>
+      <line class="edge-cond" x1="840" y1="605" x2="928" y2="605"/>
+
+      <!-- row 6: clean quit -->
+      <a href="#case-6"><rect class="node" x="60" y="680" width="350" height="40"/>
+      <text class="nlabel" x="235" y="698" text-anchor="middle">Clean quit / installer upgrade</text>
+      <text class="clabel" x="235" y="713" text-anchor="middle">tray Quit · Setup.exe upgrade path</text></a>
+      <rect class="node classify" x="500" y="680" width="340" height="40"/>
+      <text class="nlabel" x="670" y="698" text-anchor="middle">exit 0 seen / watchdog killed FIRST</text>
+      <text class="nlabel-sm" x="670" y="713" text-anchor="middle">intent is distinguishable from crash</text>
+      <rect class="node success" x="930" y="680" width="330" height="40"/>
+      <text class="nlabel" x="1095" y="698" text-anchor="middle">No relaunch — by design</text>
+      <text class="nlabel-sm" x="1095" y="713" text-anchor="middle">no zombie app mid-install</text>
+      <line class="edge" x1="410" y1="700" x2="498" y2="700"/>
+      <line class="edge-finalize" x1="840" y1="700" x2="928" y2="700"/>
+    </svg>
+  </div>
+  <div class="legend">
+    <div class="item"><span class="swatch" style="background:#2563eb"></span>solid blue — default flow</div>
+    <div class="item"><span class="swatch" style="background:#db2777"></span>solid pink — conditional response (fires on detection)</div>
+    <div class="item"><span class="swatch" style="background:#16a34a"></span>solid green — success / by-design terminal</div>
+    <div class="item"><span class="swatch dashed" style="border-color:#0891b2"></span>dashed cyan — concurrent watcher spawned alongside the app</div>
+  </div>
+  <div class="notes"><b>Read it as:</b> the app never asks the user to "handle" a failure — every row ends in an automatic recovery or an explicit, visible signal (pill / Home strip). Cases ②–⑦ below show each row's real control flow with code seams.</div>
+</section>
+
+<!-- ================= ② CASE 1: MIC OPEN ================= -->
+<section class="card" id="case-1">
+  <h2>② Case 1 — Hotkey press → mic open (the "flicker" chain, now fixed)</h2>
+  <div class="csub">PortAudio's WASAPI backend only accepts the device's native mix rate (48 kHz) — our 16 kHz request needs auto_convert. Without it every pinned-mic start failed (-9997), fell back slowly, and the user's release landed as an instant stop: a 0.00s "flicker".</div>
+  <div class="frame">
+    <div class="frame-title">RECORD_START → resolved device → stream open (with both failure exits)</div>
+    <svg viewBox="0 0 1320 480" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="b2-arr-blue"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>
+        <marker id="b2-arr-pink"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#db2777"/></marker>
+        <marker id="b2-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#16a34a"/></marker>
+        <marker id="b2-arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#f59e0b"/></marker>
+        <marker id="b2-arr-cyan"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#0891b2"/></marker>
+      </defs>
+      <style>
+        #c2 .edge { marker-end: url(#b2-arr-blue); } #c2 .edge-cond { marker-end: url(#b2-arr-pink); }
+        #c2 .edge-finalize { marker-end: url(#b2-arr-green); } #c2 .edge-feedback { marker-end: url(#b2-arr-amber); }
+        #c2 .edge-parallel { marker-end: url(#b2-arr-cyan); }
+      </style>
+      <g id="c2">
+      <!-- row 1 -->
+      <ellipse class="startend" cx="70" cy="60" rx="42" ry="22"/>
+      <text class="nlabel" x="70" y="64" text-anchor="middle">Alt+Win</text>
+
+      <rect class="node" x="140" y="40" width="170" height="40"/>
+      <text class="nlabel" x="225" y="58" text-anchor="middle">RECORD_START</text>
+      <text class="clabel" x="225" y="73" text-anchor="middle">controller.handle_hotkey</text>
+      <line class="edge" x1="112" y1="60" x2="138" y2="60"/>
+
+      <rect class="node" x="340" y="40" width="210" height="40"/>
+      <text class="nlabel" x="445" y="58" text-anchor="middle">resolve_device("Realtek…")</text>
+      <text class="clabel" x="445" y="73" text-anchor="middle">prefers the WASAPI row</text>
+      <line class="edge" x1="310" y1="60" x2="338" y2="60"/>
+
+      <polygon class="diamond" points="660,30 710,60 660,90 610,60"/>
+      <text class="nlabel" x="660" y="64" text-anchor="middle">WASAPI?</text>
+      <line class="edge" x1="550" y1="60" x2="608" y2="60"/>
+
+      <rect class="node" x="760" y="40" width="250" height="40"/>
+      <text class="nlabel" x="885" y="58" text-anchor="middle">open 16 kHz + auto_convert</text>
+      <text class="clabel" x="885" y="73" text-anchor="middle">sd.WasapiSettings(auto_convert=True)</text>
+      <line class="edge-cond" x1="710" y1="60" x2="758" y2="60"/>
+      <text class="elabel" x="732" y="50" text-anchor="middle">yes</text>
+
+      <polygon class="diamond" points="1120,30 1170,60 1120,90 1070,60"/>
+      <text class="nlabel" x="1120" y="64" text-anchor="middle">open ok?</text>
+      <line class="edge" x1="1010" y1="60" x2="1068" y2="60"/>
+
+      <!-- row 2: non-wasapi path -->
+      <rect class="node" x="560" y="150" width="230" height="40"/>
+      <text class="nlabel" x="675" y="168" text-anchor="middle">open plain (MME / DirectSound)</text>
+      <text class="nlabel-sm" x="675" y="183" text-anchor="middle">these host APIs resample on their own</text>
+      <path class="edge-cond" d="M 660,90 V 148"/>
+      <text class="elabel" x="640" y="120">no</text>
+      <path class="edge" d="M 790,170 H 1120 V 92"/>
+
+      <!-- success -->
+      <rect class="node success" x="1010" y="250" width="280" height="40"/>
+      <text class="nlabel" x="1150" y="268" text-anchor="middle">Recording — pill shows waveform</text>
+      <text class="nlabel-sm" x="1150" y="283" text-anchor="middle">state → RECORDING, chunking starts</text>
+      <path class="edge-finalize" d="M 1170,60 H 1230 V 248"/>
+      <text class="elabel" x="1245" y="130">yes</text>
+
+      <!-- retry path -->
+      <rect class="node guard" x="430" y="250" width="290" height="40"/>
+      <text class="nlabel" x="575" y="268" text-anchor="middle">WARN + retry via system default (0.3s)</text>
+      <text class="clabel" x="575" y="283" text-anchor="middle">PaErrorCode -9997 / -9999</text>
+      <path class="edge-feedback" d="M 1070,60 H 1040 V 200 H 575 V 248"/>
+      <text class="elabel" x="1000" y="195">PortAudioError</text>
+
+      <polygon class="diamond" points="820,240 870,270 820,300 770,270"/>
+      <text class="nlabel" x="820" y="274" text-anchor="middle">retry ok?</text>
+      <line class="edge" x1="720" y1="270" x2="768" y2="270"/>
+
+      <path class="edge-finalize" d="M 870,270 H 1008"/>
+      <text class="elabel" x="935" y="262">yes</text>
+
+      <!-- failure terminal -->
+      <rect class="node cascade" x="670" y="370" width="330" height="40"/>
+      <text class="nlabel" x="835" y="388" text-anchor="middle">IDLE "mic unavailable" → pill: Mic busy — try again ⚠</text>
+      <text class="nlabel-sm" x="835" y="403" text-anchor="middle">never a silent failure, never a crash</text>
+      <path class="edge-cond" d="M 820,300 V 368"/>
+      <text class="elabel" x="838" y="330">no</text>
+
+      <path class="edge-feedback" d="M 668,390 C 300,390 180,200 220,82"/>
+      <text class="elabel" x="270" y="330">user presses again</text>
+      </g>
+    </svg>
+  </div>
+  <div class="legend">
+    <div class="item"><span class="swatch" style="background:#2563eb"></span>solid blue — default flow</div>
+    <div class="item"><span class="swatch" style="background:#db2777"></span>solid pink — conditional branch</div>
+    <div class="item"><span class="swatch" style="background:#16a34a"></span>solid green — success terminal</div>
+    <div class="item"><span class="swatch dashed" style="border-color:#f59e0b"></span>dashed amber — retry / try again</div>
+  </div>
+  <div class="notes"><b>Shipped fixes on this path:</b> <code>uses_wasapi()</code> probe + <code>auto_convert</code> (commit 6827899) kills the -9997; WASAPI-row preference in <code>resolve_device</code> (8c6d846) dodges the DirectSound row that dies with -9999 after sleep/lock; the retry + "Mic busy" pill mean the worst case is one visible message, not a dead hotkey.</div>
+</section>
+
+<!-- ================= ③ CASE 2: HOOK DEATH ================= -->
+<section class="card" id="case-2">
+  <h2>③ Case 2 — Sleep/resume silently kills the keyboard hook</h2>
+  <div class="csub">Windows destroys WH_KEYBOARD_LL hooks across sleep, and the `keyboard` library latches listening=True forever — the app looks alive but never sees another key. An in-process watchdog probes the hook with a raw injected F24 and rebuilds it when the probe vanishes.</div>
+  <div class="frame">
+    <div class="frame-title">Hook liveness probe → rearm loop (wf-hook-watchdog thread)</div>
+    <svg viewBox="0 0 1320 420" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="b3-arr-blue"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>
+        <marker id="b3-arr-pink"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#db2777"/></marker>
+        <marker id="b3-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#16a34a"/></marker>
+        <marker id="b3-arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#f59e0b"/></marker>
+        <marker id="b3-arr-cyan"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#0891b2"/></marker>
+      </defs>
+      <style>
+        #c3 .edge { marker-end: url(#b3-arr-blue); } #c3 .edge-cond { marker-end: url(#b3-arr-pink); }
+        #c3 .edge-finalize { marker-end: url(#b3-arr-green); } #c3 .edge-feedback { marker-end: url(#b3-arr-amber); }
+      </style>
+      <g id="c3">
+      <!-- row 1: the failure -->
+      <ellipse class="startend" cx="90" cy="60" rx="42" ry="22"/>
+      <text class="nlabel" x="90" y="55" text-anchor="middle">Sleep →</text>
+      <text class="nlabel" x="90" y="69" text-anchor="middle">Resume</text>
+
+      <rect class="node" x="180" y="40" width="310" height="40"/>
+      <text class="nlabel" x="335" y="58" text-anchor="middle">Windows destroys the WH_KEYBOARD_LL hook</text>
+      <text class="clabel" x="335" y="73" text-anchor="middle">keyboard lib: listening=True latched, no recovery API</text>
+      <line class="edge" x1="132" y1="60" x2="178" y2="60"/>
+
+      <rect class="node guard" x="530" y="40" width="280" height="40"/>
+      <text class="nlabel" x="670" y="58" text-anchor="middle">Hotkey dead — app looks alive, hears nothing</text>
+      <text class="nlabel-sm" x="670" y="73" text-anchor="middle">the live 16-Jul incident (19:52 sleep → dead till restart)</text>
+      <line class="edge" x1="490" y1="60" x2="528" y2="60"/>
+
+      <!-- row 2: detection loop -->
+      <rect class="node" x="120" y="160" width="250" height="40"/>
+      <text class="nlabel" x="245" y="178" text-anchor="middle">watchdog tick (every 30s)</text>
+      <text class="clabel" x="245" y="193" text-anchor="middle">hotkey.py:_watchdog()</text>
+      <path class="edge" d="M 670,82 V 120 H 245 V 158"/>
+
+      <polygon class="diamond" points="470,150 520,180 470,210 420,180"/>
+      <text class="nlabel" x="470" y="184" text-anchor="middle">idle ≥ 120s?</text>
+      <line class="edge" x1="370" y1="180" x2="418" y2="180"/>
+      <path class="edge-feedback" d="M 470,210 C 430,250 300,250 250,202"/>
+      <text class="elabel" x="360" y="255" text-anchor="middle">no — keys flowing, hook fine</text>
+
+      <rect class="node" x="570" y="160" width="300" height="40"/>
+      <text class="nlabel" x="720" y="178" text-anchor="middle">inject inert F24 probe (raw SendInput)</text>
+      <text class="clabel" x="720" y="193" text-anchor="middle">wVk=0x87 — keyboard lib's own inject never arrives</text>
+      <line class="edge-cond" x1="520" y1="180" x2="568" y2="180"/>
+      <text class="elabel" x="542" y="170">yes</text>
+
+      <polygon class="diamond" points="990,150 1045,180 990,210 935,180"/>
+      <text class="nlabel" x="990" y="177" text-anchor="middle">probe seen</text>
+      <text class="nlabel" x="990" y="191" text-anchor="middle">≤ 1s?</text>
+      <line class="edge" x1="870" y1="180" x2="933" y2="180"/>
+
+      <rect class="node success" x="1090" y="160" width="200" height="40"/>
+      <text class="nlabel" x="1190" y="178" text-anchor="middle">Hook alive — all good</text>
+      <text class="nlabel-sm" x="1190" y="193" text-anchor="middle">back to ticking</text>
+      <line class="edge-finalize" x1="1045" y1="180" x2="1088" y2="180"/>
+      <text class="elabel" x="1066" y="170">yes</text>
+
+      <!-- row 3: rearm -->
+      <rect class="node cascade" x="700" y="290" width="360" height="40"/>
+      <text class="nlabel" x="880" y="308" text-anchor="middle">rearm(): unhook stale + fresh listener + re-hook + reset chord</text>
+      <text class="clabel" x="880" y="323" text-anchor="middle">kb._listener = type(kb._listener)() — forces a new OS hook thread</text>
+      <path class="edge-cond" d="M 990,210 V 288"/>
+      <text class="elabel" x="1010" y="250">no — hook is dead</text>
+
+      <path class="edge-feedback" d="M 698,310 C 500,310 450,240 560,202"/>
+      <text class="elabel" x="520" y="290" text-anchor="middle">probe again next tick</text>
+
+      <rect class="node success" x="1100" y="290" width="190" height="40"/>
+      <text class="nlabel" x="1195" y="308" text-anchor="middle">Alt+Win works again</text>
+      <text class="nlabel-sm" x="1195" y="323" text-anchor="middle">≤ ~2.5 min after resume</text>
+      <line class="edge-finalize" x1="1060" y1="310" x2="1098" y2="310"/>
+      </g>
+    </svg>
+  </div>
+  <div class="legend">
+    <div class="item"><span class="swatch" style="background:#2563eb"></span>solid blue — default flow</div>
+    <div class="item"><span class="swatch" style="background:#db2777"></span>solid pink — conditional branch</div>
+    <div class="item"><span class="swatch" style="background:#16a34a"></span>solid green — success terminal</div>
+    <div class="item"><span class="swatch dashed" style="border-color:#f59e0b"></span>dashed amber — loop back / re-check</div>
+  </div>
+  <div class="notes"><b>Hard-won details:</b> the keyboard lib's own <code>press_and_release('f24')</code> silently never reaches the hook (broken scan-code map for high F-keys, verified live) — the probe must use raw ctypes SendInput. UIPI: when an elevated window has focus the probe is blocked too; rearm churns harmlessly (WARN once, then debug).</div>
+</section>
+
+<!-- ================= ④ CASE 3: CRASH ================= -->
+<section class="card" id="case-3">
+  <h2>④ Case 3 — App crashes: sibling watchdog relaunches it</h2>
+  <div class="csub">A watcher inside the app dies with the app. WhisperFlowWatchdog.exe is a separate 1.7MB stdlib-only process that waits on the app's process handle — it survives anything that kills the app, including native faults and Task Manager.</div>
+  <div class="frame">
+    <div class="frame-title">Process exit → exit-code triage → report + relaunch (with crash-loop guard)</div>
+    <svg viewBox="0 0 1320 530" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="b4-arr-blue"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>
+        <marker id="b4-arr-pink"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#db2777"/></marker>
+        <marker id="b4-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#16a34a"/></marker>
+        <marker id="b4-arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#f59e0b"/></marker>
+        <marker id="b4-arr-cyan"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#0891b2"/></marker>
+      </defs>
+      <style>
+        #c4 .edge { marker-end: url(#b4-arr-blue); } #c4 .edge-cond { marker-end: url(#b4-arr-pink); }
+        #c4 .edge-finalize { marker-end: url(#b4-arr-green); } #c4 .edge-feedback { marker-end: url(#b4-arr-amber); }
+        #c4 .edge-parallel { marker-end: url(#b4-arr-cyan); }
+      </style>
+      <g id="c4">
+      <!-- row 1 -->
+      <ellipse class="startend" cx="80" cy="60" rx="42" ry="22"/>
+      <text class="nlabel" x="80" y="55" text-anchor="middle">Startup</text>
+      <text class="nlabel" x="80" y="69" text-anchor="middle">succeeds</text>
+
+      <rect class="node" x="170" y="40" width="220" height="40"/>
+      <text class="nlabel" x="280" y="58" text-anchor="middle">WhisperFlow.exe running</text>
+      <text class="clabel" x="280" y="73" text-anchor="middle">armed only AFTER full startup</text>
+      <line class="edge" x1="122" y1="60" x2="168" y2="60"/>
+
+      <rect class="node bucket" x="470" y="40" width="360" height="40"/>
+      <text class="nlabel" x="650" y="58" text-anchor="middle">WhisperFlowWatchdog.exe waits on the process handle</text>
+      <text class="clabel" x="650" y="73" text-anchor="middle">_spawn_crash_watchdog() · "armed" verified 2s post-spawn</text>
+      <line class="edge-parallel" x1="390" y1="60" x2="468" y2="60"/>
+
+      <!-- row 2 -->
+      <rect class="node" x="170" y="160" width="330" height="40"/>
+      <text class="nlabel" x="335" y="178" text-anchor="middle">App process ends (exception / DLL fault / taskkill)</text>
+      <text class="nlabel-sm" x="335" y="193" text-anchor="middle">WaitForSingleObject wakes with the exit code</text>
+      <path class="edge" d="M 650,82 V 120 H 335 V 158"/>
+
+      <polygon class="diamond" points="640,150 695,180 640,210 585,180"/>
+      <text class="nlabel" x="640" y="177" text-anchor="middle">exit code</text>
+      <text class="nlabel" x="640" y="191" text-anchor="middle">= 0?</text>
+      <line class="edge" x1="500" y1="180" x2="583" y2="180"/>
+
+      <rect class="node success" x="790" y="160" width="330" height="40"/>
+      <text class="nlabel" x="955" y="178" text-anchor="middle">Clean quit — watchdog exits, nothing relaunched</text>
+      <text class="nlabel-sm" x="955" y="193" text-anchor="middle">tray Quit / single-instance handoff</text>
+      <line class="edge-finalize" x1="695" y1="180" x2="788" y2="180"/>
+      <text class="elabel" x="740" y="170">yes</text>
+
+      <!-- row 3 -->
+      <rect class="node" x="330" y="280" width="420" height="40"/>
+      <text class="nlabel" x="540" y="298" text-anchor="middle">Write crashes/crash-&lt;ts&gt;.txt — exit code + last 80 log lines</text>
+      <text class="nlabel-sm" x="540" y="313" text-anchor="middle">ready to forward — teammate never hunts logs</text>
+      <path class="edge-cond" d="M 640,210 V 245 H 540 V 278"/>
+      <text class="elabel" x="660" y="240">no — real crash</text>
+
+      <polygon class="diamond" points="900,270 960,300 900,330 840,300"/>
+      <text class="nlabel" x="900" y="297" text-anchor="middle">3 lives all</text>
+      <text class="nlabel" x="900" y="311" text-anchor="middle">&lt; 60s?</text>
+      <line class="edge" x1="750" y1="300" x2="838" y2="300"/>
+
+      <rect class="node guard" x="1010" y="280" width="280" height="40"/>
+      <text class="nlabel" x="1150" y="298" text-anchor="middle">Crash-loop guard: STOP relaunching</text>
+      <text class="nlabel-sm" x="1150" y="313" text-anchor="middle">broken install surfaced, machine not melted</text>
+      <line class="edge-cond" x1="960" y1="300" x2="1008" y2="300"/>
+      <text class="elabel" x="984" y="290">yes</text>
+
+      <!-- row 4 -->
+      <rect class="node" x="330" y="400" width="380" height="40"/>
+      <text class="nlabel" x="520" y="418" text-anchor="middle">Relaunch app with WHISPERFLOW_WATCHED=1</text>
+      <text class="nlabel-sm" x="520" y="433" text-anchor="middle">relaunched app spawns NO second watchdog</text>
+      <path class="edge-cond" d="M 900,330 V 365 H 520 V 398"/>
+      <text class="elabel" x="920" y="360">no</text>
+
+      <path class="edge-feedback" d="M 330,420 C 120,420 100,220 168,182"/>
+      <text class="elabel" x="150" y="330">keep watching the new pid</text>
+
+      <rect class="node success" x="790" y="400" width="400" height="40"/>
+      <text class="nlabel" x="990" y="418" text-anchor="middle">App back &lt;8s · next launch: Home strip flags the report</text>
+      <text class="clabel" x="990" y="433" text-anchor="middle">verified live: pid 19328 → 39676 + crash-…-212028.txt</text>
+      <line class="edge-finalize" x1="710" y1="420" x2="788" y2="420"/>
+      </g>
+    </svg>
+  </div>
+  <div class="legend">
+    <div class="item"><span class="swatch" style="background:#2563eb"></span>solid blue — default flow</div>
+    <div class="item"><span class="swatch" style="background:#db2777"></span>solid pink — conditional branch</div>
+    <div class="item"><span class="swatch" style="background:#16a34a"></span>solid green — success terminal</div>
+    <div class="item"><span class="swatch dashed" style="border-color:#f59e0b"></span>dashed amber — resume watching loop</div>
+    <div class="item"><span class="swatch dashed" style="border-color:#0891b2"></span>dashed cyan — sibling process spawn</div>
+  </div>
+  <div class="notes"><b>Two subtle rules:</b> armed only after a fully successful startup (a config that dies at launch must NOT be relaunch-looped), and exit code <code>None</code> (handle already gone) never relaunches — don't guess next to a possibly-running instance.</div>
+</section>
+
+<!-- ================= ⑤ CASE 4: HANG ================= -->
+<section class="card" id="case-4">
+  <h2>⑤ Case 4 — App frozen: heartbeat staleness catches what exit codes can't</h2>
+  <div class="csub">A hung app never exits, so the crash path never fires — the live 27-Jul incident: process alive 7+ hours, UI half-dead. The app now proves liveness by touching a file from the Tk mainloop itself; the sibling watchdog treats staleness as a crash.</div>
+  <div class="frame">
+    <div class="frame-title">Heartbeat tick (app) ∥ staleness poll (watchdog) → terminate + relaunch</div>
+    <svg viewBox="0 0 1320 460" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="b5-arr-blue"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>
+        <marker id="b5-arr-pink"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#db2777"/></marker>
+        <marker id="b5-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#16a34a"/></marker>
+        <marker id="b5-arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#f59e0b"/></marker>
+        <marker id="b5-arr-cyan"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#0891b2"/></marker>
+      </defs>
+      <style>
+        #c5 .edge { marker-end: url(#b5-arr-blue); } #c5 .edge-cond { marker-end: url(#b5-arr-pink); }
+        #c5 .edge-finalize { marker-end: url(#b5-arr-green); } #c5 .edge-feedback { marker-end: url(#b5-arr-amber); }
+        #c5 .edge-parallel { marker-end: url(#b5-arr-cyan); }
+      </style>
+      <g id="c5">
+      <!-- row 1: heartbeat -->
+      <ellipse class="startend" cx="90" cy="60" rx="42" ry="22"/>
+      <text class="nlabel" x="90" y="55" text-anchor="middle">App running</text>
+      <text class="nlabel" x="90" y="69" text-anchor="middle">(watched)</text>
+
+      <rect class="node" x="185" y="40" width="360" height="40"/>
+      <text class="nlabel" x="365" y="58" text-anchor="middle">App touches heartbeat.txt every 20s — on the Tk mainloop</text>
+      <text class="clabel" x="365" y="73" text-anchor="middle">root.after() — the write dies WITH the mainloop (that's the point)</text>
+      <line class="edge" x1="132" y1="60" x2="183" y2="60"/>
+      <path class="edge-feedback" d="M 545,50 C 610,20 610,100 545,74"/>
+      <text class="elabel" x="640" y="64">every 20s</text>
+
+      <rect class="node guard" x="740" y="40" width="300" height="40"/>
+      <text class="nlabel" x="890" y="58" text-anchor="middle">Mainloop freezes — UI stuck, process still alive</text>
+      <text class="nlabel-sm" x="890" y="73" text-anchor="middle">no exit code will ever come → Case 3 is blind here</text>
+      <line class="edge" x1="545" y1="60" x2="738" y2="60"/>
+
+      <!-- row 2: watchdog poll -->
+      <rect class="node bucket" x="150" y="170" width="360" height="40"/>
+      <text class="nlabel" x="330" y="188" text-anchor="middle">Watchdog: WaitForSingleObject with 15s timeout</text>
+      <text class="clabel" x="330" y="203" text-anchor="middle">wait_for_exit_or_hang() · HEARTBEAT_POLL_S=15</text>
+      <path class="edge" d="M 890,82 V 130 H 330 V 168"/>
+
+      <polygon class="diamond" points="650,160 715,190 650,220 585,190"/>
+      <text class="nlabel" x="650" y="187" text-anchor="middle">beat older</text>
+      <text class="nlabel" x="650" y="201" text-anchor="middle">than 75s?</text>
+      <line class="edge" x1="510" y1="190" x2="583" y2="190"/>
+
+      <path class="edge-feedback" d="M 650,220 C 590,270 400,270 335,212"/>
+      <text class="elabel" x="490" y="272" text-anchor="middle">no — keep waiting (fresh launch = no beat = never stale)</text>
+
+      <!-- row 3: kill + relaunch -->
+      <rect class="node cascade" x="790" y="170" width="240" height="40"/>
+      <text class="nlabel" x="910" y="188" text-anchor="middle">TerminateProcess — treat as crash</text>
+      <text class="clabel" x="910" y="203" text-anchor="middle">HEARTBEAT_STALE_S=75 (~3 missed ticks)</text>
+      <line class="edge-cond" x1="715" y1="190" x2="788" y2="190"/>
+      <text class="elabel" x="750" y="180">yes</text>
+
+      <rect class="node" x="500" y="300" width="380" height="40"/>
+      <text class="nlabel" x="690" y="318" text-anchor="middle">Report says "WhisperFlow stopped responding" — not "crashed"</text>
+      <text class="nlabel-sm" x="690" y="333" text-anchor="middle">same crashes/ folder, same 80-line log tail</text>
+      <path class="edge" d="M 910,210 V 260 H 690 V 298"/>
+
+      <rect class="node success" x="940" y="300" width="350" height="40"/>
+      <text class="nlabel" x="1115" y="318" text-anchor="middle">Relaunch + watch new pid — frozen ≥90s never stays frozen</text>
+      <text class="clabel" x="1115" y="333" text-anchor="middle">live-verified end-to-end: detected + relaunched in 91s</text>
+      <line class="edge-finalize" x1="880" y1="320" x2="938" y2="320"/>
+      </g>
+    </svg>
+  </div>
+  <div class="legend">
+    <div class="item"><span class="swatch" style="background:#2563eb"></span>solid blue — default flow</div>
+    <div class="item"><span class="swatch" style="background:#db2777"></span>solid pink — conditional branch</div>
+    <div class="item"><span class="swatch" style="background:#16a34a"></span>solid green — success terminal</div>
+    <div class="item"><span class="swatch dashed" style="border-color:#f59e0b"></span>dashed amber — periodic loop</div>
+  </div>
+  <div class="notes"><b>Why root.after and not a thread:</b> a background thread would keep beating while the UI is frozen — scheduling the write on the mainloop makes the heartbeat die exactly when the thing we care about dies. Missing heartbeat ≠ stale: only a beat that existed and then aged out counts (old builds and fresh launches can never false-positive).</div>
+</section>
+
+<!-- ================= ⑥ CASE 5: VIRTUAL MIC ================= -->
+<section class="card" id="case-5">
+  <h2>⑥ Case 5 — Wrong/virtual default mic (the Camo trap)</h2>
+  <div class="csub">Fresh installs follow the Windows default mic — and Windows silently makes virtual devices like "Microphone (Camo)" the default. Everything "works" except the audio is pure silence. This burned real teammates before the picker shipped.</div>
+  <div class="frame">
+    <div class="frame-title">Silent-mic detection → in-app mic picker → pinned device</div>
+    <svg viewBox="0 0 1320 500" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="b6-arr-blue"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>
+        <marker id="b6-arr-pink"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#db2777"/></marker>
+        <marker id="b6-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#16a34a"/></marker>
+        <marker id="b6-arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#f59e0b"/></marker>
+        <marker id="b6-arr-cyan"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#0891b2"/></marker>
+      </defs>
+      <style>
+        #c6 .edge { marker-end: url(#b6-arr-blue); } #c6 .edge-cond { marker-end: url(#b6-arr-pink); }
+        #c6 .edge-finalize { marker-end: url(#b6-arr-green); } #c6 .edge-feedback { marker-end: url(#b6-arr-amber); }
+      </style>
+      <g id="c6">
+      <!-- row 1 -->
+      <ellipse class="startend" cx="80" cy="60" rx="42" ry="22"/>
+      <text class="nlabel" x="80" y="64" text-anchor="middle">Fresh install</text>
+
+      <rect class="node" x="170" y="40" width="260" height="40"/>
+      <text class="nlabel" x="300" y="58" text-anchor="middle">config: device = "default" (follow Windows)</text>
+      <line class="edge" x1="122" y1="60" x2="168" y2="60"/>
+
+      <rect class="node guard" x="470" y="40" width="340" height="40"/>
+      <text class="nlabel" x="640" y="58" text-anchor="middle">Windows default = "Microphone (Camo)" — virtual</text>
+      <text class="nlabel-sm" x="640" y="73" text-anchor="middle">records silence unless its companion app streams</text>
+      <line class="edge" x1="430" y1="60" x2="468" y2="60"/>
+
+      <rect class="node" x="850" y="40" width="220" height="40"/>
+      <text class="nlabel" x="960" y="58" text-anchor="middle">Dictation runs — rms ≈ 0</text>
+      <text class="nlabel-sm" x="960" y="73" text-anchor="middle">waveform flat, nothing transcribes</text>
+      <line class="edge" x1="810" y1="60" x2="848" y2="60"/>
+
+      <!-- row 2: two detectors -->
+      <rect class="node classify" x="170" y="160" width="330" height="40"/>
+      <text class="nlabel" x="335" y="178" text-anchor="middle">silent=True → pill flash "No speech — check mic ⚠"</text>
+      <text class="clabel" x="335" y="193" text-anchor="middle">ui/feedback.py:idle_flash — within 3s of stopping</text>
+      <path class="edge-cond" d="M 960,82 V 120 H 335 V 158"/>
+
+      <rect class="node classify" x="560" y="160" width="380" height="40"/>
+      <text class="nlabel" x="750" y="178" text-anchor="middle">device_warning: "Camo is a virtual mic…" → Home strip</text>
+      <text class="clabel" x="750" y="193" text-anchor="middle">audio.py:device_warning — known virtual-mic hints</text>
+      <path class="edge-cond" d="M 990,82 V 130 H 750 V 158"/>
+
+      <!-- row 3: recovery -->
+      <rect class="node" x="170" y="280" width="400" height="40"/>
+      <text class="nlabel" x="370" y="298" text-anchor="middle">Settings → Microphone: dropdown of REAL input devices</text>
+      <text class="clabel" x="370" y="313" text-anchor="middle">list_input_devices — WASAPI names, re-enumerated each open</text>
+      <path class="edge" d="M 335,202 V 240 H 370 V 278"/>
+
+      <rect class="node" x="620" y="280" width="290" height="40"/>
+      <text class="nlabel" x="765" y="298" text-anchor="middle">Test mic — 3s live level bar on the SELECTED device</text>
+      <line class="edge" x1="570" y1="300" x2="618" y2="300"/>
+
+      <polygon class="diamond" points="1010,270 1065,300 1010,330 955,300"/>
+      <text class="nlabel" x="1010" y="297" text-anchor="middle">bar</text>
+      <text class="nlabel" x="1010" y="311" text-anchor="middle">moves?</text>
+      <line class="edge" x1="910" y1="300" x2="953" y2="300"/>
+
+      <path class="edge-feedback" d="M 1010,330 C 950,400 500,400 380,322"/>
+      <text class="elabel" x="700" y="392" text-anchor="middle">no — that device is silent, pick another</text>
+
+      <!-- row 4: pin -->
+      <rect class="node success" x="820" y="420" width="440" height="40"/>
+      <text class="nlabel" x="1040" y="438" text-anchor="middle">Save — pins [audio].device, applies LIVE, survives Windows default flips</text>
+      <text class="clabel" x="1040" y="453" text-anchor="middle">recorder.set_config(cfg.audio) — no restart needed</text>
+      <path class="edge-finalize" d="M 1065,300 H 1130 V 418"/>
+      <text class="elabel" x="1150" y="360">yes</text>
+      </g>
+    </svg>
+  </div>
+  <div class="legend">
+    <div class="item"><span class="swatch" style="background:#2563eb"></span>solid blue — default flow</div>
+    <div class="item"><span class="swatch" style="background:#db2777"></span>solid pink — detection firing</div>
+    <div class="item"><span class="swatch" style="background:#16a34a"></span>solid green — success terminal</div>
+    <div class="item"><span class="swatch dashed" style="border-color:#f59e0b"></span>dashed amber — try another device</div>
+  </div>
+  <div class="notes"><b>Why pinning matters:</b> "default" re-resolves on every recording — Windows can flip it to Camo at any time. A pinned name is immune to that, and (post-⑥ fix) the pinned name resolves to its WASAPI row with auto_convert, dodging both DirectSound death and the 16 kHz rejection.</div>
+</section>
+
+<!-- ================= ⑦ CASE 6: CLEAN QUIT / UPGRADE ================= -->
+<section class="card" id="case-6">
+  <h2>⑦ Case 6 — Clean quit &amp; installer upgrade: recovery must NOT fire</h2>
+  <div class="csub">A self-healing system is only trustworthy if it also knows when to do nothing. Two intentional-exit paths are explicitly distinguished from crashes.</div>
+  <div class="frame">
+    <div class="frame-title">Intentional exits — watchdog stands down</div>
+    <svg viewBox="0 0 1320 480" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="b7-arr-blue"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#2563eb"/></marker>
+        <marker id="b7-arr-pink"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#db2777"/></marker>
+        <marker id="b7-arr-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#16a34a"/></marker>
+        <marker id="b7-arr-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#f59e0b"/></marker>
+        <marker id="b7-arr-cyan"  viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="#0891b2"/></marker>
+      </defs>
+      <style>
+        #c7 .edge { marker-end: url(#b7-arr-blue); }
+        #c7 .edge-finalize { marker-end: url(#b7-arr-green); }
+      </style>
+      <g id="c7">
+      <!-- lane A: quit -->
+      <rect class="group-detect" x="30" y="30" width="600" height="420"/>
+      <text class="grouplabel detect" x="50" y="55">LANE A — TRAY QUIT</text>
+
+      <ellipse class="startend" cx="330" cy="105" rx="42" ry="22"/>
+      <text class="nlabel" x="330" y="109" text-anchor="middle">Tray → Quit</text>
+
+      <rect class="node" x="200" y="165" width="260" height="40"/>
+      <text class="nlabel" x="330" y="183" text-anchor="middle">App exits with code 0</text>
+      <text class="clabel" x="330" y="198" text-anchor="middle">app.py on_quit → root.quit → return 0</text>
+      <line class="edge" x1="330" y1="127" x2="330" y2="163"/>
+
+      <rect class="node" x="200" y="255" width="260" height="40"/>
+      <text class="nlabel" x="330" y="273" text-anchor="middle">Watchdog reads exit code 0</text>
+      <text class="clabel" x="330" y="288" text-anchor="middle">should_relaunch(0) → False</text>
+      <line class="edge" x1="330" y1="205" x2="330" y2="253"/>
+
+      <rect class="node success" x="200" y="345" width="260" height="40"/>
+      <text class="nlabel" x="330" y="363" text-anchor="middle">Watchdog exits quietly</text>
+      <text class="nlabel-sm" x="330" y="378" text-anchor="middle">no report, no relaunch — user meant it</text>
+      <line class="edge-finalize" x1="330" y1="295" x2="330" y2="343"/>
+
+      <!-- lane B: upgrade -->
+      <rect class="group-install" x="660" y="30" width="630" height="420"/>
+      <text class="grouplabel install" x="680" y="55">LANE B — INSTALLER UPGRADE / UNINSTALL</text>
+
+      <ellipse class="startend" cx="975" cy="105" rx="42" ry="22"/>
+      <text class="nlabel" x="975" y="109" text-anchor="middle">Setup runs</text>
+
+      <rect class="node guard" x="820" y="165" width="310" height="40"/>
+      <text class="nlabel" x="975" y="183" text-anchor="middle">taskkill WhisperFlowWatchdog.exe FIRST</text>
+      <text class="clabel" x="975" y="198" text-anchor="middle">whisperflow.iss PrepareToInstall + InitializeUninstall</text>
+      <line class="edge" x1="975" y1="127" x2="975" y2="163"/>
+
+      <rect class="node" x="820" y="255" width="310" height="40"/>
+      <text class="nlabel" x="975" y="273" text-anchor="middle">then taskkill WhisperFlow.exe</text>
+      <text class="nlabel-sm" x="975" y="288" text-anchor="middle">no watcher left to misread this as a crash</text>
+      <line class="edge" x1="975" y1="205" x2="975" y2="253"/>
+
+      <rect class="node success" x="820" y="345" width="310" height="40"/>
+      <text class="nlabel" x="975" y="363" text-anchor="middle">Install proceeds — relaunch after, if not silent</text>
+      <text class="nlabel-sm" x="975" y="378" text-anchor="middle">no zombie app resurrected mid-install</text>
+      <line class="edge-finalize" x1="975" y1="295" x2="975" y2="343"/>
+      </g>
+    </svg>
+  </div>
+  <div class="legend">
+    <div class="item"><span class="swatch" style="background:#2563eb"></span>solid blue — default flow</div>
+    <div class="item"><span class="swatch" style="background:#16a34a"></span>solid green — by-design terminal</div>
+  </div>
+  <div class="notes"><b>The kill-order rule:</b> killed second, the watchdog would read the app's forced exit as a crash and relaunch it in the middle of the install. Same rule applies to manual debugging: an intentional <code>Stop-Process</code> on WhisperFlow.exe gets auto-relaunched — kill the watchdog first.</div>
+</section>
+
+</div>
+</body>
+</html>
