@@ -88,9 +88,19 @@ class HotkeyConfig:
 @dataclass
 class AudioConfig:
     device: str = "default"
-    max_seconds: float = 120.0
+    max_seconds: float = 3600.0
     min_seconds: float = 0.3
     silence_rms: float = 0.0005
+
+
+# 120s was the cap before live chunking existed, when the whole dictation had
+# to sit in RAM and go up as one upload. With chunking on it only cut long
+# dictations short mid-sentence, so it's lifted to a stuck-recording net.
+LEGACY_MAX_SECONDS = 120.0
+# ...but with chunking OFF that original constraint is back: an hour of audio
+# is ~230MB in RAM and past every provider's upload limit, which would lose
+# the whole dictation instead of ending it early. See effective_max_seconds().
+NON_STREAMING_MAX_SECONDS = 120.0
 
 
 @dataclass
@@ -174,6 +184,19 @@ class Config:
 
 class ConfigError(ValueError):
     """Raised when config.toml has an invalid value."""
+
+
+def effective_max_seconds(cfg: Config) -> float:
+    """The cap the Recorder should actually enforce for a whole dictation.
+
+    With live chunking on, the buffer drains every chunk, so length costs
+    nothing and [audio].max_seconds is only a net for a recording nobody
+    stopped. With chunking off the entire dictation must fit in RAM and in a
+    single upload, so it stays at the old ceiling however high max_seconds is.
+    """
+    if cfg.streaming.enabled:
+        return cfg.audio.max_seconds
+    return min(cfg.audio.max_seconds, NON_STREAMING_MAX_SECONDS)
 
 
 def load_dotenv(path: Path | None = None) -> int:
@@ -327,11 +350,23 @@ def _build_model_config(section) -> ModelConfig:
     return ModelConfig(**model_kwargs)
 
 
+def _build_audio_config(section) -> AudioConfig:
+    kwargs = {k: v for k, v in section("audio").items() if k in AudioConfig.__dataclass_fields__}
+    if kwargs.get("max_seconds") == LEGACY_MAX_SECONDS:
+        # Every config.toml written before this change carries the old 2-minute
+        # default verbatim, and an on-disk value wins over the dataclass — so
+        # without this lift the fix would never reach an existing install.
+        # A deliberate 120 is indistinguishable from the old default here; any
+        # other value is left exactly as the user wrote it.
+        del kwargs["max_seconds"]
+    return AudioConfig(**kwargs)
+
+
 def _build_config(section, replacements, d, cfg_path) -> Config:
     return Config(
         model=_build_model_config(section),
         hotkey=HotkeyConfig(**{k: v for k, v in section("hotkey").items() if k in HotkeyConfig.__dataclass_fields__}),
-        audio=AudioConfig(**{k: v for k, v in section("audio").items() if k in AudioConfig.__dataclass_fields__}),
+        audio=_build_audio_config(section),
         streaming=StreamingConfig(
             **{k: v for k, v in section("streaming").items() if k in StreamingConfig.__dataclass_fields__}
         ),
@@ -423,7 +458,12 @@ device = {t(a.device)}         # "default" = system default (re-checked every re
                            # NOTE: if the named mic isn't found, WhisperFlow falls back to the
                            # system default and warns — beware virtual mics (e.g. "Camo") that
                            # deliver pure silence when their companion app isn't streaming.
-max_seconds = {t(a.max_seconds)}          # hard recording cap
+max_seconds = {t(a.max_seconds)}         # hard cap for ONE dictation; hitting it finishes the dictation (nothing
+                           # is lost) and warns. It's a net for a recording nobody stopped, not a
+                           # length limit — with [streaming].enabled = true the buffer drains at
+                           # every pause, so an hour costs no more memory than a minute. With
+                           # streaming OFF the whole dictation must fit in one upload, so the cap
+                           # is held at {t(int(NON_STREAMING_MAX_SECONDS))}s however high this is set.
 min_seconds = {t(a.min_seconds)}          # discard shorter recordings
 silence_rms = {t(a.silence_rms)}       # below this RMS the recording is treated as silence (no transcription);
                            # also scales the capped-gain guard (4x this when the mic is so faint

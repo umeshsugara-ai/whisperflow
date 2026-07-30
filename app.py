@@ -22,7 +22,14 @@ if sys.stdout:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from whisperflow.audio import Recorder
-from whisperflow.config import DEFAULT_CONFIG_PATH, data_dir, load_config, load_dotenv, save_config
+from whisperflow.config import (
+    DEFAULT_CONFIG_PATH,
+    data_dir,
+    effective_max_seconds,
+    load_config,
+    load_dotenv,
+    save_config,
+)
 from whisperflow.controller import Controller, DictationResult, State
 from whisperflow.dictionary import vocabulary_prompt
 from whisperflow.history import History
@@ -152,7 +159,7 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
     engine.load()
     warmup(engine)
 
-    recorder = Recorder(cfg.audio)
+    recorder = Recorder(cfg.audio, max_seconds=effective_max_seconds(cfg))
     history = History(data_dir() / "history.jsonl", max_entries=cfg.history.max_entries)
 
     def on_result(result: DictationResult) -> None:
@@ -207,7 +214,18 @@ def build_controller(cfg) -> tuple[Controller, HotkeyListener, History]:
     # hitting the [audio].max_seconds cap now finishes the dictation instead of
     # silently dropping everything spoken past it (long live-typed dictations
     # made that a real risk); the hook re-arms on every recording start
-    recorder.on_max_duration = lambda: ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    def finish_at_cap() -> None:
+        # runs on the hook's own thread, never the audio callback. Ending a
+        # dictation the user didn't stop is invisible mid-speech, so say so:
+        # log.warning also surfaces on the Home warning strip.
+        log.warning(
+            "dictation hit the %.0f-minute cap ([audio].max_seconds) — finished it here; "
+            "everything so far was typed. Start again to keep going.",
+            effective_max_seconds(cfg) / 60.0,
+        )
+        ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+
+    recorder.on_max_duration = finish_at_cap
 
     def _track_target_while_recording() -> None:
         # keep re-capturing the target for as long as recording is active, so
@@ -364,7 +382,10 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         # the Recorder re-resolves its device at every recording start; hand it
         # the current AudioConfig so a mic picked in Settings (in-place
         # mutation) AND a tray file-reload (object replacement) both take effect
-        ctl.recorder.set_config(cfg.audio)
+        # max_seconds is re-derived here, not just carried: unchecking "transcribe
+        # while I'm still speaking" has to pull the cap back down (and re-checking
+        # it must lift it again)
+        ctl.recorder.set_config(cfg.audio, max_seconds=effective_max_seconds(cfg))
         listener.rebind(cfg.hotkey.combo, cfg.hotkey.double_tap_ms)
         overlay.persistent = cfg.overlay.always_visible
         overlay.hotkey_label = format_hotkey_label(cfg.hotkey.combo)

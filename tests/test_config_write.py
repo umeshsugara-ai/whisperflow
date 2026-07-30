@@ -170,6 +170,61 @@ def test_config_rejects_unregistered_engine(tmp_path):
         assert "engine" in str(exc)
 
 
+# ---- the dictation-length cap ----
+
+
+def test_legacy_two_minute_cap_is_lifted_to_the_current_default(tmp_path):
+    """Every config.toml written before the lift carries `max_seconds = 120.0`,
+    and an on-disk value beats the dataclass default — so without this an
+    existing install would keep cutting long dictations off at 2 minutes."""
+    from whisperflow.config import AudioConfig, LEGACY_MAX_SECONDS
+
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text(f"[audio]\nmax_seconds = {LEGACY_MAX_SECONDS}\n", encoding="utf-8")
+    assert load_config(cfg_path).audio.max_seconds == AudioConfig().max_seconds
+
+
+def test_a_deliberate_cap_that_is_not_the_legacy_default_is_kept(tmp_path):
+    cfg_path = tmp_path / "config.toml"
+    cfg_path.write_text("[audio]\nmax_seconds = 300.0\n", encoding="utf-8")
+    assert load_config(cfg_path).audio.max_seconds == 300.0
+
+
+def test_default_cap_is_long_enough_for_a_real_dictation_session():
+    from whisperflow.config import AudioConfig
+
+    assert AudioConfig().max_seconds >= 3600.0  # an hour of talking, not two minutes
+
+
+def test_effective_cap_is_the_configured_one_while_chunking_drains_the_buffer():
+    from whisperflow.config import Config, effective_max_seconds
+
+    cfg = Config()
+    cfg.streaming.enabled = True
+    cfg.audio.max_seconds = 3600.0
+    assert effective_max_seconds(cfg) == 3600.0
+
+
+def test_effective_cap_falls_back_when_chunking_is_off():
+    """Without chunking the whole dictation must fit in RAM and in one upload:
+    an hour of audio would be rejected by the provider and lost entirely."""
+    from whisperflow.config import Config, NON_STREAMING_MAX_SECONDS, effective_max_seconds
+
+    cfg = Config()
+    cfg.streaming.enabled = False
+    cfg.audio.max_seconds = 3600.0
+    assert effective_max_seconds(cfg) == NON_STREAMING_MAX_SECONDS
+
+
+def test_effective_cap_never_raises_a_shorter_configured_cap():
+    from whisperflow.config import Config, effective_max_seconds
+
+    cfg = Config()
+    cfg.streaming.enabled = False
+    cfg.audio.max_seconds = 45.0  # deliberately short — a clamp, never a floor
+    assert effective_max_seconds(cfg) == 45.0
+
+
 # ---- .env writing ----
 
 

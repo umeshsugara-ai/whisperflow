@@ -226,13 +226,15 @@ def device_warning(preference: str, resolved_name: str) -> str:
 class Recorder:
     """Start/stop microphone capture; returns a Recording on stop."""
 
-    def __init__(self, cfg: AudioConfig) -> None:
+    def __init__(self, cfg: AudioConfig, max_seconds: float | None = None) -> None:
         self.cfg = cfg
         self._stream: sd.InputStream | None = None
         self._blocks: list[np.ndarray] = []
         self._lock = threading.Lock()
         self._device_name = ""
-        self._max_samples = int(cfg.max_seconds * SAMPLE_RATE)
+        # None = trust cfg.max_seconds. The app passes config.effective_max_seconds(),
+        # which holds the cap down when live chunking is off (see that function).
+        self._max_samples = int((cfg.max_seconds if max_seconds is None else max_seconds) * SAMPLE_RATE)
         self._sample_count = 0
         self.on_max_duration: callable | None = None  # set by controller
         self.last_peak: float = 0.0  # live input level for UI feedback
@@ -247,12 +249,15 @@ class Recorder:
         self._low_level_streak = 0  # consecutive capped-gain low-level recordings
         self._device_cooldown_until = 0.0  # monotonic; see DEVICE_RETRY_COOLDOWN_S
 
-    def set_config(self, cfg: AudioConfig) -> None:
+    def set_config(self, cfg: AudioConfig, max_seconds: float | None = None) -> None:
         """Swap the audio config live (Settings save / tray file reload).
         Derived thresholds are recomputed; the device change takes effect on
-        the next recording start (start() re-resolves it every time)."""
+        the next recording start (start() re-resolves it every time).
+        `max_seconds` overrides cfg.max_seconds exactly as in __init__ — it must
+        be passed on every call, since toggling live chunking in Settings changes
+        the cap in both directions."""
         self.cfg = cfg
-        self._max_samples = int(cfg.max_seconds * SAMPLE_RATE)
+        self._max_samples = int((cfg.max_seconds if max_seconds is None else max_seconds) * SAMPLE_RATE)
         self._voice_peak = max(cfg.silence_rms * 8.0, 0.004)
         # picking a mic in Settings is an explicit "try this one" — honour it
         # immediately instead of making the user wait out an old cooldown

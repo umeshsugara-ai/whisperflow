@@ -210,7 +210,7 @@ Every dictation appends `{raw, injected, tier, ...}` to `history.jsonl` (local f
 ## Development
 
 ```powershell
-python -m pytest tests/ -q          # 275 unit tests
+python -m pytest tests/ -q          # 288 unit tests
 python scripts/test_inject.py --self-test
 python scripts/test_overlay.py --cycle
 python scripts/test_stt.py --smoke

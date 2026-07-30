@@ -691,6 +691,43 @@ def test_close_swallows_errors_from_a_broken_stream():
     assert rec._stream is None  # and the handle is dropped either way
 
 
+# ---- the dictation-length cap the Recorder enforces ----
+
+
+def test_recorder_enforces_the_cap_it_is_handed_not_the_config_one():
+    """app.py hands over config.effective_max_seconds(), which is lower than
+    [audio].max_seconds whenever live chunking is off."""
+    from whisperflow.audio import SAMPLE_RATE, Recorder
+    from whisperflow.config import AudioConfig
+
+    rec = Recorder(AudioConfig(max_seconds=3600.0), max_seconds=120.0)
+    assert rec._max_samples == int(120.0 * SAMPLE_RATE)
+
+
+def test_recorder_falls_back_to_the_config_cap_when_handed_none():
+    from whisperflow.audio import SAMPLE_RATE, Recorder
+    from whisperflow.config import AudioConfig
+
+    rec = Recorder(AudioConfig(max_seconds=1800.0))
+    assert rec._max_samples == int(1800.0 * SAMPLE_RATE)
+
+
+def test_set_config_can_move_the_cap_in_both_directions():
+    """Toggling "transcribe while I'm still speaking" in Settings changes the
+    effective cap; a live reload has to apply the new one, not keep the old."""
+    from whisperflow.audio import SAMPLE_RATE, Recorder
+    from whisperflow.config import AudioConfig
+
+    cfg = AudioConfig(max_seconds=3600.0)
+    rec = Recorder(cfg, max_seconds=3600.0)
+
+    rec.set_config(cfg, max_seconds=120.0)  # chunking switched off
+    assert rec._max_samples == int(120.0 * SAMPLE_RATE)
+
+    rec.set_config(cfg, max_seconds=3600.0)  # ...and back on
+    assert rec._max_samples == int(3600.0 * SAMPLE_RATE)
+
+
 def test_host_api_name_is_diagnostic_never_fatal():
     """Several host APIs expose the same mic under the same name, so failure
     logs need the backend — but a log helper must never break recording."""
