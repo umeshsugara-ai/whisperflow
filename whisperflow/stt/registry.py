@@ -77,18 +77,18 @@ def verify_provider_key(provider_id: str, api_key: str, model: str = "") -> str 
     Returns None on success, or a friendly error message to show next to
     the key field. Never raises — this runs from UI save paths. Local
     never needs a key."""
-    import numpy as np
-
-    provider = providers.get(provider_id)
-    if provider.kind == "local":
-        return None
-    cfg = ModelConfig(
-        engine=provider_id,
-        cloud_model=model or provider.default_model,
-        api_key=api_key,
-        api_key_env=provider.api_key_env,
-    )
     try:
+        import numpy as np
+
+        provider = providers.get(provider_id)
+        if provider.kind == "local":
+            return None
+        cfg = ModelConfig(
+            engine=provider_id,
+            cloud_model=model or provider.default_model,
+            api_key=api_key,
+            api_key_env=provider.api_key_env,
+        )
         engine = create_engine(cfg)
         engine.load()
         engine.transcribe(np.zeros(4800, dtype=np.float32))

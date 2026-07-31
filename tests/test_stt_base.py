@@ -174,3 +174,15 @@ def test_verify_provider_key_bad_key_returns_friendly_message(monkeypatch):
     )
     msg = verify_provider_key("groq", "typo-key")
     assert msg is not None and "rejected your API key" in msg
+
+
+def test_verify_provider_key_never_raises_even_on_unknown_provider():
+    # The key-entry UIs run this on a worker thread whose only job is to
+    # post the result back to Tk. If it raises, the thread dies silently
+    # and the dialog is stuck at "Checking your key…" forever — so the
+    # "Never raises" contract must hold for EVERY failure, including ones
+    # before the engine is even created.
+    from whisperflow.stt.registry import verify_provider_key
+
+    msg = verify_provider_key("no-such-provider", "some-key")
+    assert msg is not None and "no-such-provider" in msg

@@ -878,27 +878,51 @@ class SettingsPage(tk.Frame):
             # a mistyped key must fail here, next to the field, not on the
             # user's first dictation tomorrow.
             save_btn.config(state="disabled")
-            key_status.config(text="Checking your key…", fg=FG_DIM)
+            key_status.config(
+                text="Checking your key… (can take up to a minute on a slow network)", fg=FG_DIM
+            )
+
+            # The worker thread must NEVER touch Tk — after() from a
+            # background thread raises RuntimeError when the main thread
+            # isn't in mainloop() (see first_run.py, where that froze the
+            # first-run dialog at "Checking your key…" forever). Same
+            # thread-safe shape here: the thread drops its result into
+            # `outcome` and the MAIN thread polls for it.
+            outcome: dict = {}
 
             def worker() -> None:
-                from whisperflow.stt.registry import verify_provider_key
+                try:
+                    from whisperflow.stt.registry import verify_provider_key
 
-                err = verify_provider_key(provider.id, value, model=self.model_var.get().strip())
+                    outcome["err"] = verify_provider_key(
+                        provider.id, value, model=self.model_var.get().strip()
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    outcome["err"] = str(exc)
 
-                def apply() -> None:
-                    try:
-                        if err is not None:
-                            save_btn.config(state="normal")
-                            key_status.config(text=f"✗ {err}", fg=ACCENT_ERR)
-                            return
-                        set_env_var(provider.api_key_env, value, path=self.cfg.path.parent / ".env")
-                        self._render_key_entry(provider)  # re-render to show "✓ ... is set"
-                    except tk.TclError:
-                        pass  # user navigated away while the check ran
-
-                self.after(0, apply)
+            def poll() -> None:
+                try:
+                    if "err" not in outcome:
+                        self.after(100, poll)
+                        return
+                    err = outcome["err"]
+                    if err is not None:
+                        save_btn.config(state="normal")
+                        key_status.config(text=f"✗ {err}", fg=ACCENT_ERR)
+                        return
+                    set_env_var(provider.api_key_env, value, path=self.cfg.path.parent / ".env")
+                    self._render_key_entry(provider)  # re-render to show "✓ ... is set"
+                except tk.TclError:
+                    pass  # user navigated away while the check ran
+                except Exception as exc:  # noqa: BLE001
+                    # e.g. the .env write failed (read-only folder, sync
+                    # lock). A raise here unwinds into Tk's silent callback
+                    # handler and freezes the page — recover instead.
+                    save_btn.config(state="normal")
+                    key_status.config(text=f"✗ Couldn't save your key: {exc}", fg=ACCENT_ERR)
 
             threading.Thread(target=worker, daemon=True).start()
+            self.after(100, poll)
 
         save_btn = _button(key_row, "Save key", _save_key)
         save_btn.pack(side="left", padx=(6, 0))

@@ -235,30 +235,53 @@ def show_first_run_chooser(root, specs, rec, path):
             # a mistyped key must fail here, next to the field, not on the
             # user's first dictation.
             save_btn.config(state="disabled")
-            key_status.config(text="Checking your key…", fg=FG_DIM)
+            key_status.config(
+                text="Checking your key… (can take up to a minute on a slow network)", fg=FG_DIM
+            )
             key_status.pack(anchor="w", pady=(4, 0))
 
+            # The worker thread must NEVER touch Tk. This dialog runs under
+            # wait_window(), not mainloop(), and _tkinter only marks the main
+            # thread as "in main loop" inside mainloop() — so win.after() from
+            # a background thread raises RuntimeError('main thread is not in
+            # main loop'), the thread dies, and the dialog is stuck at
+            # "Checking your key…" forever. Instead the thread drops its
+            # result into `outcome` and the MAIN thread polls for it.
+            outcome: dict = {}
+
             def worker() -> None:
-                from whisperflow.stt.registry import verify_provider_key
+                try:
+                    from whisperflow.stt.registry import verify_provider_key
 
-                err = verify_provider_key(provider.id, value)
+                    outcome["err"] = verify_provider_key(provider.id, value)
+                except Exception as exc:  # noqa: BLE001
+                    outcome["err"] = str(exc)
 
-                def apply() -> None:
-                    try:
-                        if err is not None:
-                            save_btn.config(state="normal")
-                            key_status.config(text=f"✗ {err}", fg="#e5484d")
-                            return
-                        set_env_var(provider.api_key_env, value, path=path.parent / ".env")
-                        cfg = build_config_for_engine(provider.id, specs)
-                        cfg.path = path
-                        _finish(cfg)
-                    except tk.TclError:
-                        pass  # window closed while the check ran
-
-                win.after(0, apply)
+            def poll() -> None:
+                try:
+                    if "err" not in outcome:
+                        win.after(100, poll)
+                        return
+                    err = outcome["err"]
+                    if err is not None:
+                        save_btn.config(state="normal")
+                        key_status.config(text=f"✗ {err}", fg="#e5484d")
+                        return
+                    set_env_var(provider.api_key_env, value, path=path.parent / ".env")
+                    cfg = build_config_for_engine(provider.id, specs)
+                    cfg.path = path
+                    _finish(cfg)
+                except tk.TclError:
+                    pass  # window closed while the check ran
+                except Exception as exc:  # noqa: BLE001
+                    # e.g. the .env write failed (read-only folder, sync
+                    # lock). A raise here unwinds into Tk's silent callback
+                    # handler and freezes the dialog — recover instead.
+                    save_btn.config(state="normal")
+                    key_status.config(text=f"✗ Couldn't save your key: {exc}", fg="#e5484d")
 
             threading.Thread(target=worker, daemon=True).start()
+            win.after(100, poll)
 
         save_btn = tk.Button(
             key_row, text="Save & continue", command=_confirm_with_key,
