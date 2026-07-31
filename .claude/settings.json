@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(\"/c/Users/Lenovo/AppData/Local/Microsoft/WindowsApps/python3.13\" -m pytest tests/test_updater.py tests/test_config_write.py -q)"
-    ]
-  }
-}

@@ -46,3 +46,4 @@ models/
 # OS cruft
 Thumbs.db
 .DS_Store
+.claude/
