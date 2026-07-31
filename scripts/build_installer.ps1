@@ -48,11 +48,23 @@ if (-not $iscc) {
 & $iscc "installer\whisperflow.iss"
 
 $setup = "$repo\installer\Output\WhisperFlow-Setup.exe"
-if (Test-Path $setup) {
-    $mb = [math]::Round((Get-Item $setup).Length / 1MB)
-    Write-Output ""
-    Write-Output "DONE: $setup ($mb MB)"
-    Write-Output "Distribute via: gh release create vX.Y.Z `"$setup`""
-} else {
+if (-not (Test-Path $setup)) {
     Write-Error "Inno Setup did not produce $setup"
 }
+
+# RULE: every installer build ships with a matching source zip — users who
+# grab "the zip" from the release must get exactly the code the installer
+# was built from, never a stale snapshot. Built from HEAD, so commit (and
+# push) before building; the release tag must sit on that same commit.
+Write-Output "== 3/3 Source zip (same commit as the exe) =="
+$srcZip = "$repo\installer\Output\WhisperFlow-Source.zip"
+git -C $repo archive --format=zip -o $srcZip HEAD
+if (-not (Test-Path $srcZip)) {
+    Write-Error "git archive did not produce $srcZip"
+}
+
+$mb = [math]::Round((Get-Item $setup).Length / 1MB)
+Write-Output ""
+Write-Output "DONE: $setup ($mb MB)"
+Write-Output "      $srcZip"
+Write-Output "Distribute BOTH via: gh release create vX.Y.Z `"$setup`" `"$srcZip`""

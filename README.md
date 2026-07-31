@@ -40,7 +40,7 @@ Download **`WhisperFlow-Setup.exe`** (~29MB) from the [GitHub Releases](https://
 
 Uninstall from Windows Settings → Apps; it force-closes WhisperFlow first (no more "still running after uninstall" — fixed 2026-07-16) and asks whether to keep your history/settings.
 
-**Building the installer (maintainer):** install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run `powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1` → `installer\Output\WhisperFlow-Setup.exe`.
+**Building the installer (maintainer):** install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run `powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1` → `installer\Output\WhisperFlow-Setup.exe` **plus** `WhisperFlow-Source.zip` (built from the same commit). Release rule: commit + push first, then upload BOTH files with `gh release create vX.Y.Z` so the tag (and its auto-attached source zip) matches the exe exactly — a release must never ship an installer newer than its zip.
 
 ### Option B — developer install (git clone)
 
