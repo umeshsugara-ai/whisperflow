@@ -42,6 +42,8 @@ class Tray:
         on_quit: Callable[[], None],
         on_tier_change: Callable[[str], None],
         on_open_main: Callable[[str], None] = lambda tab: None,
+        update_available: Callable[[], str | None] = lambda: None,
+        on_install_update: Callable[[], None] = lambda: None,
     ) -> None:
         self.cfg = cfg
         self.history = history
@@ -49,6 +51,8 @@ class Tray:
         self.on_quit = on_quit
         self.on_tier_change = on_tier_change
         self.on_open_main = on_open_main
+        self.update_available = update_available
+        self.on_install_update = on_install_update
         self._icons = icons.all_state_icons()
         self._status_line = "idle"
 
@@ -96,6 +100,14 @@ class Tray:
             MenuItem("Open config", self._open_config),
             MenuItem("Reload config", lambda: self.on_reload_config()),
             Menu.SEPARATOR,
+            # Callable text/visible are re-evaluated by pystray on every menu
+            # open (same idiom as the Status line above), so this item appears
+            # the moment an update finishes downloading — no menu rebuild.
+            MenuItem(
+                lambda item: f"Update ready (v{self.update_available()}) — restart to update",
+                lambda: self.on_install_update(),
+                visible=lambda item: self.update_available() is not None,
+            ),
             MenuItem("Quit WhisperFlow", self._quit),
         )
 
@@ -144,6 +156,14 @@ class Tray:
         self._status_line = f"{state_name.lower()}{' — ' + detail if detail else ''}"
         self.icon.icon = self._icons[icon_key]
         self.icon.title = f"WhisperFlow — {self._status_line}"[:120]
+
+    def refresh_menu(self) -> None:
+        """Nudge pystray to re-render the menu (safe cross-thread) — the
+        callable items would refresh on next open anyway; this is insurance."""
+        try:
+            self.icon.update_menu()
+        except Exception:  # noqa: BLE001 — a cosmetic nudge must never crash a worker
+            pass
 
     def run_detached(self) -> None:
         threading.Thread(target=self.icon.run, daemon=True, name="wf-tray").start()

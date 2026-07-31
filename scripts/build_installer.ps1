@@ -36,6 +36,12 @@ if (-not (Test-Path "$repo\dist\$exeName\$exeName.exe")) {
 }
 
 Write-Output "== 2/2 Inno Setup compile =="
+# The version lives ONLY in whisperflow/__init__.py — read it and stamp the
+# installer with it so the exe, the ARP entry, and the release tag can't drift.
+$m = Select-String -Path "$repo\whisperflow\__init__.py" -Pattern '__version__\s*=\s*"([^"]+)"'
+if (-not $m) { Write-Error "no __version__ found in whisperflow\__init__.py" }
+$appVersion = $m.Matches[0].Groups[1].Value
+Write-Output "App version: $appVersion (from whisperflow\__init__.py)"
 $isccCandidates = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
     "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
@@ -45,7 +51,7 @@ $iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $iscc) {
     Write-Error "Inno Setup 6 not found. Install it: winget install JRSoftware.InnoSetup --scope user"
 }
-& $iscc "installer\whisperflow.iss"
+& $iscc "/DAppVersion=$appVersion" "installer\whisperflow.iss"
 
 $setup = "$repo\installer\Output\WhisperFlow-Setup.exe"
 if (-not (Test-Path $setup)) {
@@ -67,4 +73,4 @@ $mb = [math]::Round((Get-Item $setup).Length / 1MB)
 Write-Output ""
 Write-Output "DONE: $setup ($mb MB)"
 Write-Output "      $srcZip"
-Write-Output "Distribute BOTH via: gh release create vX.Y.Z `"$setup`" `"$srcZip`""
+Write-Output "Distribute BOTH via: gh release create v$appVersion `"$setup`" `"$srcZip`""

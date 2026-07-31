@@ -168,6 +168,14 @@ class HistoryConfig:
 
 
 @dataclass
+class UpdatesConfig:
+    # Installed (frozen) builds check GitHub releases in the background and
+    # pre-download a newer installer; installing is always a manual click.
+    # Dev checkouts never check regardless of this flag.
+    auto_check: bool = True
+
+
+@dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
@@ -179,6 +187,7 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     startup: StartupConfig = field(default_factory=StartupConfig)
+    updates: UpdatesConfig = field(default_factory=UpdatesConfig)
     path: Path = DEFAULT_CONFIG_PATH
 
 
@@ -384,6 +393,9 @@ def _build_config(section, replacements, d, cfg_path) -> Config:
         startup=StartupConfig(
             **{k: v for k, v in section("startup").items() if k in StartupConfig.__dataclass_fields__}
         ),
+        updates=UpdatesConfig(
+            **{k: v for k, v in section("updates").items() if k in UpdatesConfig.__dataclass_fields__}
+        ),
         path=cfg_path,
     )
 
@@ -409,9 +421,9 @@ def serialize_config(cfg: Config) -> str:
     GUI save (targeted line-editing breaks on arrays-of-tables).
     """
     t = _toml_value
-    m, hk, a, st, c, i, dic, h, o, s = (
+    m, hk, a, st, c, i, dic, h, o, s, u = (
         cfg.model, cfg.hotkey, cfg.audio, cfg.streaming, cfg.cleanup, cfg.inject,
-        cfg.dictionary, cfg.history, cfg.overlay, cfg.startup,
+        cfg.dictionary, cfg.history, cfg.overlay, cfg.startup, cfg.updates,
     )
     replacement_blocks = "".join(
         f"\n[[dictionary.replacements]]\nfrom = {t(r.from_)}\nto = {t(r.to)}\n"
@@ -522,6 +534,11 @@ auto_register = {t(s.auto_register)}       # on first run, register WhisperFlow 
 crash_restart = {t(s.crash_restart)}       # a tiny watchdog relaunches the app if it ever crashes
                            # (clean Quit never triggers it); crash reports land in
                            # the data dir's crashes/ folder
+
+[updates]
+auto_check = {t(u.auto_check)}          # installed builds check GitHub for a newer WhisperFlow in the
+                           # background and pre-download it; installing is always a manual
+                           # click (tray → "Update ready"). Dev checkouts never check.
 '''
 
 

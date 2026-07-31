@@ -1,5 +1,5 @@
 ; WhisperFlow — Inno Setup 6 script (industry-style setup wizard).
-; Compile: ISCC.exe installer\whisperflow.iss   (or scripts\build_installer.ps1)
+; Compile: scripts\build_installer.ps1  (or ISCC.exe /DAppVersion=x.y.z installer\whisperflow.iss)
 ; Input : dist\WhisperFlow\  (PyInstaller onedir output — build that first)
 ; Output: installer\Output\WhisperFlow-Setup.exe
 ;
@@ -7,7 +7,13 @@
 ; %LOCALAPPDATA%\Programs\WhisperFlow, writable state in %LOCALAPPDATA%\WhisperFlow.
 
 #define AppName "WhisperFlow"
-#define AppVersion "1.0.2"
+#ifndef AppVersion
+  ; The version lives ONLY in whisperflow/__init__.py; the build script passes
+  ; it via /DAppVersion. A hand-compiled installer stamped with a stale or
+  ; zero version would make every user's auto-updater misjudge the shipped
+  ; release forever — fail the compile loudly instead of guessing.
+  #error AppVersion not defined - build via scripts\build_installer.ps1 (or pass /DAppVersion=x.y.z)
+#endif
 #define AppExe "WhisperFlow.exe"
 #define AppPublisher "Vidysea"
 
@@ -48,8 +54,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
+; No skipifsilent: the auto-updater upgrades with /VERYSILENT and relies on
+; this default-checked postinstall entry to relaunch the app afterwards.
+; Interactive installs still get the same "Launch now" checkbox as before.
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; \
-    Flags: nowait postinstall skipifsilent
+    Flags: nowait postinstall
 
 [Code]
 // Force-close any running WhisperFlow instance BEFORE uninstall touches

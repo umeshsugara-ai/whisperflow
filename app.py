@@ -26,6 +26,7 @@ from whisperflow.config import (
     DEFAULT_CONFIG_PATH,
     data_dir,
     effective_max_seconds,
+    is_frozen,
     load_config,
     load_dotenv,
     save_config,
@@ -416,6 +417,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
         cfg.overlay = fresh.overlay
         cfg.hotkey = fresh.hotkey
         cfg.model = fresh.model
+        cfg.updates = fresh.updates  # the updater re-reads auto_check each cycle
         apply_live()
         log.info("config reloaded (hotkey/engine changes applied live)")
 
@@ -448,11 +450,53 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
 
     overlay.on_open_main = lambda: on_open_main("home")  # right-click the pill
 
-    tray = Tray(cfg, history, on_reload_config, on_quit, on_tier_change, on_open_main)
+    # ---- auto-update (frozen builds only; Updater.start() no-ops on a dev
+    # checkout). The wf-updater thread only ever touches plain attributes and
+    # these callbacks, which marshal into Tk via overlay.post — a worker
+    # thread must never call Tk directly (the first-run freeze lesson).
+    from whisperflow import __version__ as app_version
+    from whisperflow import updater as updater_mod
+
+    def _on_update_ready(version: str) -> None:
+        log.warning(
+            "Update ready — WhisperFlow %s is downloaded. Right-click the tray "
+            'icon and choose "Update ready" to restart and update.', version,
+        )
+        overlay.post(overlay.flash_warn, f"Update ready — v{version}")
+        tray.refresh_menu()
+
+    updater = updater_mod.Updater(cfg, on_ready=_on_update_ready)
+
+    def on_install_update() -> None:
+        if ctl.state is not State.IDLE:
+            overlay.post(overlay.flash_warn, "Finish your dictation, then click Update again")
+            return
+        if updater.install_ready_update():
+            # clean exit 0: the crash watchdog stands down, and the installer's
+            # PrepareToInstall kills any straggler processes before file copy
+            log.info("restarting to install WhisperFlow %s", updater.ready_version)
+            on_quit()
+
+    tray = Tray(
+        cfg, history, on_reload_config, on_quit, on_tier_change, on_open_main,
+        update_available=lambda: updater.ready_version,
+        on_install_update=on_install_update,
+    )
     ctl.on_state = on_state
     ctl.start()
     listener.start()
     tray.run_detached()
+    updater.start()
+    if is_frozen():
+        # post-update hook: first launch of a new version gets one "Updated ✓"
+        # toast and a place for future migrations/"this version needs input"
+        # popups; a fresh install just writes the marker.
+        prev = updater_mod.read_last_run_version(data_dir())
+        if prev is not None and prev != app_version:
+            log.info("first launch after update: %s -> %s", prev, app_version)
+            root.after(0, lambda: overlay.flash_done(f"Updated to v{app_version} ✓"))
+            updater_mod.cleanup_updates_dir(data_dir() / "updates")
+        updater_mod.write_last_run_version(data_dir(), app_version)
     threading.Thread(target=_watch_show_requests, daemon=True, name="wf-show-event").start()
     if cfg.overlay.always_visible:
         root.after(0, lambda: overlay.show_idle(hint=cfg.overlay.show_hint))
@@ -477,6 +521,7 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
     finally:
         listener.stop()
         ctl.shutdown()
+        updater.stop()
         tray.stop()
     return 0
 
@@ -619,7 +664,10 @@ def _report_recent_crashes() -> None:
 
 
 def main() -> int:
+    from whisperflow import __version__
+
     ap = argparse.ArgumentParser()
+    ap.add_argument("--version", action="version", version=f"WhisperFlow {__version__}")
     ap.add_argument("--headless", action="store_true", help="run without tray/overlay UI")
     ap.add_argument("--recommend", action="store_true", help="detect hardware and suggest the best model, then exit")
     ap.add_argument("--install-autostart", action="store_true", help="register WhisperFlow to start at Windows login, then exit")
