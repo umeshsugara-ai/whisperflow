@@ -553,7 +553,10 @@ def test_low_level_streak_warns_once_and_rearms(caplog):
     rec = Recorder(AudioConfig())
     in_band = [np.full(16000, 0.0006, dtype=np.float32)]
     plain_silent = [np.full(16000, 0.0004, dtype=np.float32)]
-    healthy = [np.full(16000, 0.05, dtype=np.float32)]
+    # 0.2 peak = 4.25x gain. (0.05 used to stand in for "healthy" here, but
+    # that needs 17x — the very level the 2026-08-05 collapse sat at, and it
+    # now counts as weak rather than re-arming the warning.)
+    healthy = [np.full(16000, 0.2, dtype=np.float32)]
 
     def warnings():
         return [m for m in caplog.messages if "Mic level near zero" in m]
@@ -571,6 +574,41 @@ def test_low_level_streak_warns_once_and_rearms(caplog):
         for _ in range(3):
             rec._finalize(in_band)
         assert len(warnings()) == 2
+
+
+def test_sustained_high_gain_warns_though_speech_still_passes(caplog):
+    """Live 2026-08-05: Windows input volume at 28/100 made EVERY chunk need
+    9x-40x gain, but peaks (0.02-0.10) stayed above the capped-gain band, so
+    low_level never tripped and the Home strip stayed silent for the whole
+    dictation. Chronic near-cap gain is itself the mic-collapse signal."""
+    import logging
+
+    from whisperflow.audio import Recorder
+    from whisperflow.config import AudioConfig
+
+    rec = Recorder(AudioConfig())
+    quiet_speech = [np.full(16000, 0.05, dtype=np.float32)]  # 17x gain to reach target
+
+    with caplog.at_level(logging.WARNING, logger="whisperflow.audio"):
+        for _ in range(3):
+            r = rec._finalize(quiet_speech)
+    assert r.silent is False and r.low_level is False  # still transcribed — not suppressed
+    assert len([m for m in caplog.messages if "Mic level near zero" in m]) == 1
+
+
+def test_usable_input_level_never_warns(caplog):
+    import logging
+
+    from whisperflow.audio import Recorder
+    from whisperflow.config import AudioConfig
+
+    rec = Recorder(AudioConfig())
+    usable = [np.full(16000, 0.2, dtype=np.float32)]  # 4.25x gain — an ordinary quiet room
+
+    with caplog.at_level(logging.WARNING, logger="whisperflow.audio"):
+        for _ in range(5):
+            rec._finalize(usable)
+    assert [m for m in caplog.messages if "Mic level near zero" in m] == []
 
 
 def test_idle_flash_maps_mic_level_detail():
@@ -620,6 +658,78 @@ def test_special_tokens_scrubbed_from_transcripts():
     ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
     wait_idle(ctl)
     assert injected == ["chalo shuru karte hain"]  # token gone, text intact
+    ctl.shutdown()
+
+
+# ---- hallucination feedback loop ----
+#
+# Live 2026-08-05: an 84-second dictation produced 5 characters. Whisper
+# hallucinated "Ina?" on the first amplified-noise chunk; nothing caught it
+# (context_tail was empty and "ina" is not in the Hinglish seed), so it was
+# typed AND promoted into context_tail — which is fed back to whisper as
+# prompt. From then on the model read its own hallucination back on every
+# chunk, and is_prompt_echo dropped each one as an "echo" of a string the app
+# itself had planted. These tests pin both halves of that loop shut.
+
+
+def test_one_word_fragment_never_becomes_prompt_context():
+    rec = FakeChunkRecorder()
+    engine = SequenceEngine(["Ina?", "chalo kaam shuru karte hain"])
+    ctl, states, results, injected = build(rec, engine)
+
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    rec.arm_chunk()
+    wait(lambda: len(injected) >= 1)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert "Ina" not in engine.prompts[1]  # the fragment did NOT steer the next chunk
+    ctl.shutdown()
+
+
+def test_stuck_token_repeat_is_dropped():
+    rec = FakeChunkRecorder()
+    engine = SequenceEngine(["Ina?", "Ina?"])
+    ctl, states, results, injected = build(rec, engine)
+
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    rec.arm_chunk()
+    wait(lambda: len(injected) >= 1)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert injected == ["Ina?"]  # the repeat is not typed a second time
+    ctl.shutdown()
+
+
+def test_stuck_token_burst_is_dropped():
+    """The real 10:32:16 chunk: the model latched on and emitted the stuck
+    token four times inside ONE chunk. Same hallucination, same drop."""
+    rec = FakeChunkRecorder()
+    engine = SequenceEngine(["Ina?", "Ina? Ina? Ina? Ina?"])
+    ctl, states, results, injected = build(rec, engine)
+
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    rec.arm_chunk()
+    wait(lambda: len(injected) >= 1)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert injected == ["Ina?"]
+    ctl.shutdown()
+
+
+def test_verbatim_long_repeat_still_dropped_as_prompt_echo():
+    """Pins the DELIBERATE behaviour the stuck-token check must not widen:
+    a full sentence parroted back verbatim is the classic context-tail echo
+    (see _transcribe_chunk) and stays dropped by is_prompt_echo."""
+    rec = FakeChunkRecorder()
+    engine = SequenceEngine(["chalo kaam shuru karte hain", "chalo kaam shuru karte hain"])
+    ctl, states, results, injected = build(rec, engine)
+
+    ctl.handle_hotkey(HotkeyEvent.RECORD_START)
+    rec.arm_chunk()
+    wait(lambda: len(injected) >= 1)
+    ctl.handle_hotkey(HotkeyEvent.RECORD_STOP)
+    wait_idle(ctl)
+    assert injected == ["chalo kaam shuru karte hain"]
     ctl.shutdown()
 
 

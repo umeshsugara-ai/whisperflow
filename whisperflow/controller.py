@@ -43,6 +43,16 @@ log = logging.getLogger(__name__)
 # here, at the one choke point every provider's text passes through.
 _SPECIAL_TOKEN_RE = re.compile(r"<\|[^|>]{1,24}\|>")
 
+# Shortest transcript allowed to join session.context_tail (whisper's prompt for
+# later chunks). See _transcribe_chunk for why a lone fragment must not steer.
+_MIN_CONTEXT_WORDS = 2
+
+
+def _norm_words(text: str) -> list[str]:
+    """Lowercased, punctuation-stripped words — the comparison form shared by
+    the prompt-echo and stuck-repeat guards."""
+    return [w for w in (p.strip(".,!?;:\"'()") for p in text.lower().split()) if w]
+
 
 def is_prompt_echo(text: str, initial_prompt: str, max_words: int = 14) -> bool:
     """Detect whisper hallucinating the initial_prompt back as output.
@@ -53,13 +63,39 @@ def is_prompt_echo(text: str, initial_prompt: str, max_words: int = 14) -> bool:
     """
     if not text or not initial_prompt:
         return False
-    norm = lambda s: [w.strip(".,!?;:\"'()") for w in s.lower().split()]  # noqa: E731
-    words = [w for w in norm(text) if w]
+    words = _norm_words(text)
     if not words or len(words) > max_words:
         return False
-    prompt_words = set(norm(initial_prompt))
+    prompt_words = set(_norm_words(initial_prompt))
     hits = sum(1 for w in words if w in prompt_words)
     return hits / len(words) >= 0.75
+
+
+def _collapse_runs(words: list[str]) -> list[str]:
+    """Squash consecutive duplicates: ['ina','ina','ina'] -> ['ina'].
+
+    A stuck token repeats WITHIN a chunk as readily as across chunks (the real
+    10:32:16 chunk came back as 'Ina? Ina? Ina? Ina?'), and both are the same
+    hallucination. Collapsing first also keeps a long burst from sliding past
+    the max_words bound below.
+    """
+    return [w for i, w in enumerate(words) if i == 0 or w != words[i - 1]]
+
+
+def is_stuck_repeat(text: str, previous: str, max_words: int = 4) -> bool:
+    """Whisper emitting the SAME short fragment on consecutive chunks.
+
+    A stuck token ('Ina?' on chunk after chunk, live 2026-08-05) is what
+    marginal audio produces once the model latches onto something — it is not
+    speech, and unlike a prompt echo it needs no prompt to appear. Bounded to
+    SHORT fragments on purpose: a repeated full sentence is the context-tail
+    echo is_prompt_echo already covers, and a user genuinely can say a whole
+    line twice.
+    """
+    words = _collapse_runs(_norm_words(text))
+    if not words or len(words) > max_words:
+        return False
+    return words == _collapse_runs(_norm_words(previous))
 
 
 def should_chunk(pending_s: float, since_voice_s: float, voiced: bool, st: StreamingConfig) -> bool:
@@ -270,10 +306,21 @@ class Controller:
         if is_prompt_echo(raw_text, f"{prompt} {HINGLISH_SEED}"):
             log.info("dropped prompt-echo hallucination: %r", raw_text)
             return ""
+        if session.raw_parts and is_stuck_repeat(raw_text, session.raw_parts[-1]):
+            log.info("dropped stuck-token repeat: %r", raw_text)
+            return ""
 
         final_text, tier = self.process_text(raw_text, result.language)
         session.raw_parts.append(raw_text)
-        session.context_tail = _append_text(session.context_tail, raw_text)[-200:]
+        # context_tail is fed back to whisper as prompt, so whatever lands here
+        # STEERS every later chunk. A one-word fragment carries no punctuation
+        # or casing signal to carry across the boundary — and it is exactly the
+        # shape a hallucination on marginal audio takes. Promoting one closes a
+        # loop: the model reads its own invention back as context, re-emits it,
+        # and is_prompt_echo then drops each repeat as an "echo" of a string the
+        # app itself planted (live 2026-08-05, 'Ina?'). Keep the tail clean.
+        if len(raw_text.split()) >= _MIN_CONTEXT_WORDS:
+            session.context_tail = _append_text(session.context_tail, raw_text)[-200:]
         session.tier = tier
         return final_text
 

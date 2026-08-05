@@ -39,8 +39,19 @@ GAIN_TARGET = 0.85
 GAIN_CAP = 40.0
 CAPPED_SILENCE_FACTOR = 4.0
 
-# a mic-level collapse shows up as a RUN of capped low-level recordings; one
-# alone is just a quiet room. Warn once per streak (lands on the Home strip).
+# The capped band above is deliberately narrow — it decides whether to SUPPRESS
+# audio, so it only trips where amplified noise floor is indistinguishable from
+# speech. A collapsed mic level is far more common than that band suggests, and
+# its other signature is speech that transcribes fine but needs near-cap gain
+# on every single chunk (live 2026-08-05: input volume at 28/100 -> peaks
+# 0.02-0.10, gains 9x-40x, and low_level never once tripped, so the Home strip
+# stayed silent through an 84-second dictation that produced 5 characters).
+# Anything needing WEAK_GAIN or more is a mic that wants looking at; it is a
+# WARNING threshold only and never suppresses audio.
+WEAK_GAIN = 8.0
+
+# a mic-level collapse shows up as a RUN of weak recordings; one alone is just
+# a quiet room. Warn once per streak (lands on the Home strip).
 LOW_LEVEL_STREAK = 3
 
 # How long a pinned device that failed to open is skipped in favour of the
@@ -409,7 +420,12 @@ class Recorder:
             self.cfg.silence_rms <= rms < self.cfg.silence_rms * CAPPED_SILENCE_FACTOR
         )
         silent = rms < self.cfg.silence_rms or low_level
-        self._track_low_level(low_level, silent)
+        # Mic-health signal, distinct from the suppression decision above:
+        # speech that PASSES but needs >= WEAK_GAIN counts towards the same
+        # streak, so a collapsed input level is reported even when every chunk
+        # transcribes. Never feeds `silent` — this only drives the warning.
+        weak_level = low_level or (not silent and 0.0 < peak < GAIN_TARGET / WEAK_GAIN)
+        self._track_low_level(weak_level, silent)
 
         # Auto-gain: laptop mics at low Windows input volume produce faint
         # audio (peaks ~0.005) that VAD discards as silence. If there IS
@@ -433,15 +449,16 @@ class Recorder:
             low_level=low_level,
         )
 
-    def _track_low_level(self, low_level: bool, silent: bool) -> None:
+    def _track_low_level(self, weak: bool, silent: bool) -> None:
         """Mic-health streak: a collapsed input level shows up as a RUN of
-        low_level recordings (a mix of in-band and below-band chunks, so
-        plain silence is NEUTRAL — only real speech resets). Warn exactly
-        once per streak; a healthy recording re-arms the warning. Called
-        from _finalize, which runs on both the worker thread (live chunks)
-        and the hotkey thread (stop) — hence the lock."""
+        weak recordings — capped-gain low_level chunks AND speech that only
+        passes on >= WEAK_GAIN amplification (plain silence is NEUTRAL, so a
+        mix of the two still accumulates; only a recording at a healthy level
+        resets). Warn exactly once per streak; that healthy recording re-arms
+        the warning. Called from _finalize, which runs on both the worker
+        thread (live chunks) and the hotkey thread (stop) — hence the lock."""
         with self._lock:
-            if low_level:
+            if weak:
                 self._low_level_streak += 1
                 if self._low_level_streak == LOW_LEVEL_STREAK:
                     log.warning(
