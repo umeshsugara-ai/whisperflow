@@ -28,6 +28,57 @@ def test_center_geometry_puts_the_window_in_the_middle():
     assert mw.center_geometry(800, 480, 920, 580) == "920x580+0+0"
 
 
+def test_current_size_survives_a_resize_and_ignores_an_unmapped_window():
+    assert mw.current_size("1040x700+10+20") == (1040, 700)
+    assert mw.current_size("1x1+0+0") == (920, 580)  # never mapped
+    assert mw.current_size("garbage") == (920, 580)
+
+
+def test_reopening_a_closed_window_recenters_it(tmp_path, monkeypatch):
+    """Closing only withdraws the window, so the instance outlives it — the
+    second Start-menu open used to come back wherever the window last sat."""
+    monkeypatch.setattr(mw, "data_dir", lambda: tmp_path)
+    root = _tk_root()
+    try:
+        win = mw.MainWindow.open(
+            root, Config(), History(tmp_path / "history.jsonl"), apply_config=lambda: None
+        )
+        win.win.geometry("+5+5")  # user drags it into a corner...
+        win.win.withdraw()  # ...then closes it
+        win.win.update_idletasks()
+
+        win.recenter_if_reopening()
+        win.win.update_idletasks()
+        expected = mw.center_geometry(
+            win.win.winfo_screenwidth(), win.win.winfo_screenheight(), 920, 580
+        )
+        assert win.win.geometry() == expected
+    finally:
+        mw.MainWindow._open_instance = None
+        root.destroy()
+
+
+def test_a_window_already_on_screen_is_not_yanked_to_the_middle(tmp_path, monkeypatch):
+    """Clicking the tray while the window is already visible is "bring to
+    front", not "open" — moving it then would be the app fighting the user."""
+    monkeypatch.setattr(mw, "data_dir", lambda: tmp_path)
+    root = _tk_root()
+    try:
+        win = mw.MainWindow.open(
+            root, Config(), History(tmp_path / "history.jsonl"), apply_config=lambda: None
+        )
+        win.win.geometry("+40+60")
+        win.win.update_idletasks()
+        assert win.win.state() == "normal"
+
+        win.recenter_if_reopening()
+        win.win.update_idletasks()
+        assert "+40+60" in win.win.geometry()
+    finally:
+        mw.MainWindow._open_instance = None
+        root.destroy()
+
+
 def test_guide_not_dismissed_initially(tmp_path, monkeypatch):
     monkeypatch.setattr(mw, "data_dir", lambda: tmp_path)
     assert not mw.guide_dismissed()

@@ -142,6 +142,17 @@ def center_geometry(screen_w: int, screen_h: int, width: int, height: int) -> st
     return f"{width}x{height}+{x}+{y}"
 
 
+def current_size(geometry: str, fallback: tuple[int, int] = (920, 580)) -> tuple[int, int]:
+    """Width/height out of a Tk geometry string ('920x580+308+142'). A window
+    Tk has never mapped reports '1x1+0+0', which would collapse it to nothing —
+    anything that small means "no real size yet", so use the default."""
+    try:
+        width, height = (int(v) for v in geometry.split("+")[0].split("x"))
+    except ValueError:
+        return fallback
+    return fallback if width <= 1 or height <= 1 else (width, height)
+
+
 def _button(parent, text, command, **kw) -> tk.Button:
     return tk.Button(
         parent, text=text, command=command, bg=BTN, fg=FG, relief="flat",
@@ -164,10 +175,12 @@ class MainWindow:
         *,
         reset_overlay: Callable[[], None] | None = None,
     ) -> "MainWindow":
-        """Single instance: re-open deiconifies, refreshes, and switches tab."""
+        """Single instance: re-open re-centers, deiconifies, refreshes, and
+        switches tab."""
         inst = cls._open_instance
         if inst is not None:
             try:
+                inst.recenter_if_reopening()
                 inst.win.deiconify()
                 inst._force_foreground()
                 inst.show_page(tab)
@@ -179,6 +192,24 @@ class MainWindow:
         inst.show_page(tab)
         inst._force_foreground()
         return inst
+
+    def recenter_if_reopening(self) -> None:
+        """Opening the app puts its window back in the middle. Closing only
+        WITHDRAWS the window (the app lives in the tray), so the instance
+        outlives every close — centering it once at creation meant the second
+        Start-menu open came back wherever the window last sat, which is not
+        what "open the app" is supposed to do. A window that is already on
+        screen is left exactly where it is: that click is "bring to front",
+        not "open"."""
+        win = self.win
+        if win.state() == "normal":
+            return
+        # the size is read back from the window (a resize the user made is
+        # theirs to keep) — only the POSITION resets
+        width, height = current_size(win.geometry())
+        win.geometry(center_geometry(
+            win.winfo_screenwidth(), win.winfo_screenheight(), width, height
+        ))
 
     def _force_foreground(self) -> None:
         """Actually bring the window in front and focus it. `lift()` alone
