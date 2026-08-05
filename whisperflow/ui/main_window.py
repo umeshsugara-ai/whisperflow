@@ -131,6 +131,17 @@ def guide_lines(hotkey_label: str, double_tap: bool = False) -> list[tuple[str, 
     ]
 
 
+def center_geometry(screen_w: int, screen_h: int, width: int, height: int) -> str:
+    """A Tk geometry string putting a window in the middle of the screen.
+    Without an explicit position Tk cascades toplevels from the top-left, so
+    the window drifted to wherever the previous one sat instead of coming back
+    to the middle on a fresh launch. Pure, so the math is testable — same
+    reasoning as overlay.default_position."""
+    x = max(0, (screen_w - width) // 2)
+    y = max(0, (screen_h - height) // 2)
+    return f"{width}x{height}+{x}+{y}"
+
+
 def _button(parent, text, command, **kw) -> tk.Button:
     return tk.Button(
         parent, text=text, command=command, bg=BTN, fg=FG, relief="flat",
@@ -158,7 +169,7 @@ class MainWindow:
         if inst is not None:
             try:
                 inst.win.deiconify()
-                inst.win.lift()
+                inst._force_foreground()
                 inst.show_page(tab)
                 return inst
             except tk.TclError:
@@ -166,13 +177,33 @@ class MainWindow:
         inst = cls(root, cfg, history, apply_config, warnings_source, reset_overlay=reset_overlay)
         cls._open_instance = inst
         inst.show_page(tab)
+        inst._force_foreground()
         return inst
+
+    def _force_foreground(self) -> None:
+        """Actually bring the window in front and focus it. `lift()` alone
+        loses to Windows' foreground lock when the request comes from a
+        background process (tray click, or the show-event a second launch
+        signals) — the window then opens buried behind whatever is fullscreen,
+        which reads as "the app won't open". The topmost pulse + focus_force
+        wins once the second launch has donated its foreground rights
+        (AllowSetForegroundWindow in sysinfo.signal_show_event)."""
+        win = self.win
+        win.lift()
+        win.attributes("-topmost", True)
+        try:
+            win.focus_force()
+        except tk.TclError:
+            pass
+        win.after(200, lambda: win.attributes("-topmost", False))
 
     def __init__(self, root, cfg, history, apply_config, warnings_source=None, *, reset_overlay=None) -> None:
         self.cfg = cfg
         self.win = tk.Toplevel(root)
         self.win.title("WhisperFlow")
-        self.win.geometry("920x580")
+        self.win.geometry(center_geometry(
+            self.win.winfo_screenwidth(), self.win.winfo_screenheight(), 920, 580
+        ))
         self.win.minsize(760, 480)
         self.win.configure(bg=BG)
         # closing hides — the app lives in the tray; quit is tray-only

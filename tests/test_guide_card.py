@@ -20,6 +20,14 @@ def _tk_root():
     return root
 
 
+def test_center_geometry_puts_the_window_in_the_middle():
+    """A fresh launch must put the window back in the middle — Tk's default
+    cascade left it drifting toward the top-left corner instead."""
+    assert mw.center_geometry(1536, 864, 920, 580) == "920x580+308+142"
+    # never off-screen, even when the window is bigger than the screen
+    assert mw.center_geometry(800, 480, 920, 580) == "920x580+0+0"
+
+
 def test_guide_not_dismissed_initially(tmp_path, monkeypatch):
     monkeypatch.setattr(mw, "data_dir", lambda: tmp_path)
     assert not mw.guide_dismissed()

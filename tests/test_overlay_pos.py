@@ -108,6 +108,40 @@ def test_remember_position_rejects_a_mostly_offscreen_spot(tmp_path, monkeypatch
         root.destroy()
 
 
+# ---- the pill has to be FINDABLE, not just correctly placed ----
+
+
+def test_startup_hint_shows_the_full_pill_then_collapses(tmp_path, monkeypatch):
+    """Re-centering is invisible if the pill lands as a 46x14 dot: the user
+    looks at bottom-center, sees a speck, and reports "it didn't reset"."""
+    monkeypatch.setattr(ov, "POS_FILE", tmp_path / "overlay_pos.txt")
+    root = _tk_root()
+    try:
+        overlay = ov.Overlay(root)
+        overlay.hotkey_label = "Alt+Win"
+        overlay.show_idle(hint=True)
+        assert overlay.canvas.itemcget(overlay._pill, "state") == "normal"
+        assert overlay.canvas.itemcget(overlay._rest_pill, "state") == "hidden"
+        assert "Alt+Win" in overlay.canvas.itemcget(overlay._label, "text")
+
+        overlay._idle_minimal()  # what the 4s timer fires
+        assert overlay.canvas.itemcget(overlay._pill, "state") == "hidden"
+        assert overlay.canvas.itemcget(overlay._rest_pill, "state") == "normal"
+    finally:
+        root.destroy()
+
+
+def test_resting_dot_is_bright_enough_to_spot(tmp_path, monkeypatch):
+    monkeypatch.setattr(ov, "POS_FILE", tmp_path / "overlay_pos.txt")
+    root = _tk_root()
+    try:
+        overlay = ov.Overlay(root)
+        overlay.show_idle()
+        assert overlay.canvas.itemcget(overlay._label, "fill") == ov.FG
+    finally:
+        root.destroy()
+
+
 # ---- the pill can no longer be dragged somewhere it can't be grabbed back ----
 
 

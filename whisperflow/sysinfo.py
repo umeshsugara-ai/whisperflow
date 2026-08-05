@@ -130,6 +130,7 @@ def disable_autostart() -> None:
 _SHOW_EVENT = "Global\\WhisperFlowShowMainWindow"
 _WAIT_OBJECT_0 = 0
 _EVENT_MODIFY_STATE = 0x0002
+_ASFW_ANY = -1  # AllowSetForegroundWindow: donate foreground rights to any process
 
 
 def create_show_event() -> int:
@@ -144,6 +145,14 @@ def signal_show_event() -> bool:
     if not handle:
         return False
     try:
+        # We were just launched by the user, so Windows gave US foreground
+        # rights. Donate them before signaling — without this the running
+        # instance's focus_force() loses to the foreground lock and its
+        # window opens buried behind whatever is fullscreen.
+        try:
+            ctypes.windll.user32.AllowSetForegroundWindow(_ASFW_ANY)
+        except OSError:
+            pass
         return bool(kernel32.SetEvent(handle))
     finally:
         kernel32.CloseHandle(handle)

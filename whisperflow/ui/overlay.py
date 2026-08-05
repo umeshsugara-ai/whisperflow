@@ -363,7 +363,9 @@ class Overlay:
         else:
             self.canvas.itemconfig(self._pill, state="hidden")  # hide the wide box
             self.canvas.itemconfig(self._rest_pill, state="normal")  # small pill only
-            self.canvas.itemconfig(self._label, text="●", fill=FG_DIM, state="normal")
+            # bright dot, not dim: at 46x14 the resting pill is easy to lose on
+            # a dark background, and "where did the pill go" reads as a bug
+            self.canvas.itemconfig(self._label, text="●", fill=FG, state="normal")
 
     def _on_hover_enter(self, _event=None) -> None:
         self._hovering = True
