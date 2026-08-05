@@ -576,38 +576,58 @@ def test_low_level_streak_warns_once_and_rearms(caplog):
         assert len(warnings()) == 2
 
 
-def test_sustained_high_gain_warns_though_speech_still_passes(caplog):
-    """Live 2026-08-05: Windows input volume at 28/100 made EVERY chunk need
-    9x-40x gain, but peaks (0.02-0.10) stayed above the capped-gain band, so
-    low_level never tripped and the Home strip stayed silent for the whole
-    dictation. Chronic near-cap gain is itself the mic-collapse signal."""
+def _shaped_block(peak: float, rms: float, seconds: float = 2.0) -> np.ndarray:
+    """One block with a REALISTIC peak/rms split. Speech has transient peaks
+    far above its rms, which _finalize_const (rms == peak) cannot express —
+    and the difference is the whole point of these two tests."""
+    n = int(seconds * 16000)
+    rest = np.sqrt(max(n * rms**2 - peak**2, 0.0) / (n - 1))
+    buf = np.full(n, rest, dtype=np.float32)
+    buf[0] = peak
+    return buf
+
+
+# Both levels below are MEASURED, from whisperflow.log on 2026-08-05: the same
+# mic, the same speaker, before and after Windows input volume was corrected
+# from 28/100 to 85/100. Peak barely separates them (0.036 vs 0.098 — and the
+# broken session peaked as high as 0.103); rms separates them by 10x. That is
+# why the weak-level signal keys off rms.
+
+
+def test_collapsed_input_level_warns_though_speech_still_passes(caplog):
+    """Input volume at 28/100: every chunk needed 9x-40x gain, but peaks stayed
+    above the capped-gain band, so low_level never tripped and the Home strip
+    stayed silent through an 84-second dictation that produced 5 characters."""
     import logging
 
     from whisperflow.audio import Recorder
     from whisperflow.config import AudioConfig
 
     rec = Recorder(AudioConfig())
-    quiet_speech = [np.full(16000, 0.05, dtype=np.float32)]  # 17x gain to reach target
+    collapsed = [_shaped_block(peak=0.0356, rms=0.00152)]  # real 10:32:19 chunk
 
     with caplog.at_level(logging.WARNING, logger="whisperflow.audio"):
         for _ in range(3):
-            r = rec._finalize(quiet_speech)
+            r = rec._finalize(collapsed)
     assert r.silent is False and r.low_level is False  # still transcribed — not suppressed
     assert len([m for m in caplog.messages if "Mic level near zero" in m]) == 1
 
 
-def test_usable_input_level_never_warns(caplog):
+def test_working_input_level_never_warns(caplog):
+    """Input volume at 85/100 — the SAME mic transcribing fine (194 chars that
+    chunk). It still needs 8.6x gain, so a gain-based threshold would cry wolf
+    on a perfectly healthy dictation."""
     import logging
 
     from whisperflow.audio import Recorder
     from whisperflow.config import AudioConfig
 
     rec = Recorder(AudioConfig())
-    usable = [np.full(16000, 0.2, dtype=np.float32)]  # 4.25x gain — an ordinary quiet room
+    working = [_shaped_block(peak=0.0984, rms=0.02055)]  # real 11:38:59 chunk
 
     with caplog.at_level(logging.WARNING, logger="whisperflow.audio"):
         for _ in range(5):
-            rec._finalize(usable)
+            rec._finalize(working)
     assert [m for m in caplog.messages if "Mic level near zero" in m] == []
 
 
