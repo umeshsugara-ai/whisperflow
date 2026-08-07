@@ -446,6 +446,12 @@ def run_with_ui(cfg, ctl, listener, history, autostarted: bool = False, root=Non
             return
         while True:
             if sysinfo.wait_show_event(handle, 2000):
+                # A second launch is the user OPENING the app, so re-apply the
+                # launch-time pill placement too — not just the main window.
+                # Only this path: right-clicking the pill or the tray menu is
+                # "show me the window", and yanking the pill mid-click is not
+                # what that asks for. post(): this runs on the watcher thread.
+                overlay.post(overlay.recenter_on_open)
                 on_open_main("home")
 
     overlay.on_open_main = lambda: on_open_main("home")  # right-click the pill

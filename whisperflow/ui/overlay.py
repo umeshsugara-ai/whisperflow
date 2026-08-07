@@ -208,6 +208,18 @@ class Overlay:
             x, y = default_position(screen_w, screen_h, self.width, self.height)
         self.win.geometry(f"{self.width}x{self.height}+{x}+{y}")
 
+    def recenter_on_open(self) -> None:
+        """Opening the app puts the pill back where a LAUNCH would put it.
+
+        Closing the window only hides it — the process lives on in the tray —
+        so a Start-menu "open" signals the running instance instead of starting
+        a new one, and the overlay is never re-created. Placing the pill in
+        __init__ alone therefore let a drag outlive every open: the pill stayed
+        stranded until the machine rebooted. Delegating to _place_initial keeps
+        open and launch from ever disagreeing, so remember_position = true
+        still wins here exactly as it does at launch."""
+        self._place_initial()
+
     def reset_position(self) -> None:
         """Forget any dragged position and re-center at the default spot —
         the recovery for "I dragged the pill somewhere and lost it"

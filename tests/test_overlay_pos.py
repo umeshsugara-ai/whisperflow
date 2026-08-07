@@ -108,6 +108,43 @@ def test_remember_position_rejects_a_mostly_offscreen_spot(tmp_path, monkeypatch
         root.destroy()
 
 
+def test_opening_the_app_again_recenters_a_dragged_pill(tmp_path, monkeypatch):
+    """Opening the app puts the pill back where a launch would put it. Closing
+    only hides the window — the process lives on in the tray — so placing the
+    pill in __init__ ALONE meant a drag survived every subsequent open, and the
+    only way back to center was a reboot."""
+    monkeypatch.setattr(ov, "POS_FILE", tmp_path / "overlay_pos.txt")
+    root = _tk_root()
+    try:
+        overlay = ov.Overlay(root)
+        # the real stranded spot: dragged left and down onto the taskbar clamp
+        overlay.win.geometry(f"{overlay.width}x{overlay.height}+96+776")
+        overlay.win.update_idletasks()
+        overlay.recenter_on_open()
+        overlay.win.update_idletasks()
+        assert _default_geom(overlay) in overlay.win.geometry()
+    finally:
+        root.destroy()
+
+
+def test_opening_the_app_again_honours_remember_position(tmp_path, monkeypatch):
+    """Open places the pill exactly where a fresh launch would — so a user who
+    opted into keeping their drag keeps it here too, rather than having the
+    setting quietly overruled by every open."""
+    monkeypatch.setattr(ov, "POS_FILE", tmp_path / "overlay_pos.txt")
+    ov.POS_FILE.write_text("120,300")
+    root = _tk_root()
+    try:
+        overlay = ov.Overlay(root, remember_position=True)
+        overlay.win.geometry(f"{overlay.width}x{overlay.height}+700+700")
+        overlay.win.update_idletasks()
+        overlay.recenter_on_open()
+        overlay.win.update_idletasks()
+        assert "+120+300" in overlay.win.geometry()
+    finally:
+        root.destroy()
+
+
 # ---- the pill has to be FINDABLE, not just correctly placed ----
 
 
